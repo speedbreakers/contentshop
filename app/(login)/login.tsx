@@ -5,7 +5,7 @@ import { useActionState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { CircleIcon, Loader2 } from 'lucide-react';
 import { signIn, signUp } from './actions';
 import { ActionState } from '@/lib/auth/middleware';
@@ -38,14 +38,11 @@ export function Login({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
           <input type="hidden" name="redirect" value={redirect || ''} />
           <input type="hidden" name="priceId" value={priceId || ''} />
           <input type="hidden" name="inviteId" value={inviteId || ''} />
-          <div>
-            <Label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Email
-            </Label>
-            <div className="mt-1">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="email" className="text-gray-700">
+                Email
+              </FieldLabel>
               <Input
                 id="email"
                 name="email"
@@ -57,17 +54,12 @@ export function Login({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
                 className="appearance-none rounded-full relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500 focus:z-10 sm:text-sm"
                 placeholder="Enter your email"
               />
-            </div>
-          </div>
+            </Field>
 
-          <div>
-            <Label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Password
-            </Label>
-            <div className="mt-1">
+            <Field>
+              <FieldLabel htmlFor="password" className="text-gray-700">
+                Password
+              </FieldLabel>
               <Input
                 id="password"
                 name="password"
@@ -82,12 +74,10 @@ export function Login({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
                 className="appearance-none rounded-full relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500 focus:z-10 sm:text-sm"
                 placeholder="Enter your password"
               />
-            </div>
-          </div>
+            </Field>
 
-          {state?.error && (
-            <div className="text-red-500 text-sm">{state.error}</div>
-          )}
+            {state?.error ? <FieldError>{state.error}</FieldError> : null}
+          </FieldGroup>
 
           <div>
             <Button

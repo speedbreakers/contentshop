@@ -17,8 +17,13 @@ import useSWR from 'swr';
 import { Suspense } from 'react';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
 import { Loader2, PlusCircle } from 'lucide-react';
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field';
 
 type ActionState = {
   error?: string;
@@ -202,43 +207,57 @@ function InviteTeamMember() {
       </CardHeader>
       <CardContent>
         <form action={inviteAction} className="space-y-4">
-          <div>
-            <Label htmlFor="email" className="mb-2">
-              Email
-            </Label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              placeholder="Enter email"
-              required
-              disabled={!isOwner}
-            />
-          </div>
-          <div>
-            <Label>Role</Label>
-            <RadioGroup
-              defaultValue="member"
-              name="role"
-              className="flex space-x-4"
-              disabled={!isOwner}
-            >
-              <div className="flex items-center space-x-2 mt-2">
-                <RadioGroupItem value="member" id="member" />
-                <Label htmlFor="member">Member</Label>
-              </div>
-              <div className="flex items-center space-x-2 mt-2">
-                <RadioGroupItem value="owner" id="owner" />
-                <Label htmlFor="owner">Owner</Label>
-              </div>
-            </RadioGroup>
-          </div>
-          {inviteState?.error && (
-            <p className="text-red-500">{inviteState.error}</p>
-          )}
-          {inviteState?.success && (
-            <p className="text-green-500">{inviteState.success}</p>
-          )}
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="invite-email" className="mb-2">
+                Email
+              </FieldLabel>
+              <Input
+                id="invite-email"
+                name="email"
+                type="email"
+                placeholder="Enter email"
+                required
+                disabled={!isOwner}
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel className="mb-2">Role</FieldLabel>
+              <RadioGroup
+                defaultValue="member"
+                name="role"
+                className="flex space-x-4"
+                disabled={!isOwner}
+              >
+                <div className="flex items-center space-x-2 mt-2">
+                  <RadioGroupItem value="member" id="invite-role-member" />
+                  <FieldLabel
+                    htmlFor="invite-role-member"
+                    className="font-normal"
+                  >
+                    Member
+                  </FieldLabel>
+                </div>
+                <div className="flex items-center space-x-2 mt-2">
+                  <RadioGroupItem value="owner" id="invite-role-owner" />
+                  <FieldLabel
+                    htmlFor="invite-role-owner"
+                    className="font-normal"
+                  >
+                    Owner
+                  </FieldLabel>
+                </div>
+              </RadioGroup>
+            </Field>
+
+            {inviteState?.error ? (
+              <FieldError>{inviteState.error}</FieldError>
+            ) : null}
+            {inviteState?.success ? (
+              <p className="text-green-500">{inviteState.success}</p>
+            ) : null}
+          </FieldGroup>
           <Button
             type="submit"
             className="bg-orange-500 hover:bg-orange-600 text-white"

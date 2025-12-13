@@ -3,10 +3,10 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
 import { Lock, Trash2, Loader2 } from 'lucide-react';
 import { useActionState } from 'react';
 import { updatePassword, deleteAccount } from '@/app/(login)/actions';
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 
 type PasswordState = {
   currentPassword?: string;
@@ -44,56 +44,50 @@ export default function SecurityPage() {
         </CardHeader>
         <CardContent>
           <form className="space-y-4" action={passwordAction}>
-            <div>
-              <Label htmlFor="current-password" className="mb-2">
-                Current Password
-              </Label>
-              <Input
-                id="current-password"
-                name="currentPassword"
-                type="password"
-                autoComplete="current-password"
-                required
-                minLength={8}
-                maxLength={100}
-                defaultValue={passwordState.currentPassword}
-              />
-            </div>
-            <div>
-              <Label htmlFor="new-password" className="mb-2">
-                New Password
-              </Label>
-              <Input
-                id="new-password"
-                name="newPassword"
-                type="password"
-                autoComplete="new-password"
-                required
-                minLength={8}
-                maxLength={100}
-                defaultValue={passwordState.newPassword}
-              />
-            </div>
-            <div>
-              <Label htmlFor="confirm-password" className="mb-2">
-                Confirm New Password
-              </Label>
-              <Input
-                id="confirm-password"
-                name="confirmPassword"
-                type="password"
-                required
-                minLength={8}
-                maxLength={100}
-                defaultValue={passwordState.confirmPassword}
-              />
-            </div>
-            {passwordState.error && (
-              <p className="text-red-500 text-sm">{passwordState.error}</p>
-            )}
-            {passwordState.success && (
-              <p className="text-green-500 text-sm">{passwordState.success}</p>
-            )}
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="current-password">Current Password</FieldLabel>
+                <Input
+                  id="current-password"
+                  name="currentPassword"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  minLength={8}
+                  maxLength={100}
+                  defaultValue={passwordState.currentPassword}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="new-password">New Password</FieldLabel>
+                <Input
+                  id="new-password"
+                  name="newPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  minLength={8}
+                  maxLength={100}
+                  defaultValue={passwordState.newPassword}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="confirm-password">Confirm New Password</FieldLabel>
+                <Input
+                  id="confirm-password"
+                  name="confirmPassword"
+                  type="password"
+                  required
+                  minLength={8}
+                  maxLength={100}
+                  defaultValue={passwordState.confirmPassword}
+                />
+              </Field>
+              {passwordState.error ? <FieldError>{passwordState.error}</FieldError> : null}
+              {passwordState.success ? (
+                <p className="text-green-500 text-sm">{passwordState.success}</p>
+              ) : null}
+            </FieldGroup>
             <Button
               type="submit"
               className="bg-orange-500 hover:bg-orange-600 text-white"
@@ -124,23 +118,21 @@ export default function SecurityPage() {
             Account deletion is non-reversable. Please proceed with caution.
           </p>
           <form action={deleteAction} className="space-y-4">
-            <div>
-              <Label htmlFor="delete-password" className="mb-2">
-                Confirm Password
-              </Label>
-              <Input
-                id="delete-password"
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                maxLength={100}
-                defaultValue={deleteState.password}
-              />
-            </div>
-            {deleteState.error && (
-              <p className="text-red-500 text-sm">{deleteState.error}</p>
-            )}
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="delete-password">Confirm Password</FieldLabel>
+                <Input
+                  id="delete-password"
+                  name="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  maxLength={100}
+                  defaultValue={deleteState.password}
+                />
+              </Field>
+              {deleteState.error ? <FieldError>{deleteState.error}</FieldError> : null}
+            </FieldGroup>
             <Button
               type="submit"
               variant="destructive"

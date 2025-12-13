@@ -4,12 +4,12 @@ import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
 import { Loader2 } from 'lucide-react';
 import { updateAccount } from '@/app/(login)/actions';
 import { User } from '@/lib/db/schema';
 import useSWR from 'swr';
 import { Suspense } from 'react';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -31,11 +31,9 @@ function AccountForm({
   emailValue = ''
 }: AccountFormProps) {
   return (
-    <>
-      <div>
-        <Label htmlFor="name" className="mb-2">
-          Name
-        </Label>
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="name">Name</FieldLabel>
         <Input
           id="name"
           name="name"
@@ -43,11 +41,9 @@ function AccountForm({
           defaultValue={state.name || nameValue}
           required
         />
-      </div>
-      <div>
-        <Label htmlFor="email" className="mb-2">
-          Email
-        </Label>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="email">Email</FieldLabel>
         <Input
           id="email"
           name="email"
@@ -56,8 +52,8 @@ function AccountForm({
           defaultValue={emailValue}
           required
         />
-      </div>
-    </>
+      </Field>
+    </FieldGroup>
   );
 }
 
