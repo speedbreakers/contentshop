@@ -66,7 +66,7 @@ Finally, run the Next.js development server:
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser to see the app in action.
+Open [http://localhost:4200](http://localhost:4200) in your browser to see the app in action.
 
 You can listen for Stripe webhooks locally through their CLI to handle subscription change events:
 
