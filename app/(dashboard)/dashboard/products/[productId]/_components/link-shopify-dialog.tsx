@@ -25,6 +25,7 @@ export function LinkShopifyDialog(props: {
   value: string;
   placeholder: string;
   onSave: (value: string) => void;
+  onUnlink?: () => void;
 }) {
   const [local, setLocal] = useState(props.value);
 
@@ -51,6 +52,18 @@ export function LinkShopifyDialog(props: {
           </Field>
         </FieldGroup>
         <DialogFooter>
+          {props.onUnlink ? (
+            <Button
+              variant="destructive"
+              onClick={() => {
+                props.onUnlink?.();
+                props.onOpenChange(false);
+              }}
+              disabled={!props.value}
+            >
+              Unlink
+            </Button>
+          ) : null}
           <Button variant="outline" onClick={() => props.onOpenChange(false)}>
             Cancel
           </Button>

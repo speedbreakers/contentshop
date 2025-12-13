@@ -13,6 +13,7 @@ import { VariantsTable } from './_components/variants-table';
 import { CreateVariantDialog } from './_components/create-variant-dialog';
 import { LinkShopifyDialog } from './_components/link-shopify-dialog';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { ProductDescription } from './_components/product-description';
 
 function statusBadgeVariant(status: string) {
   if (status === 'active') return 'default';
@@ -110,18 +111,19 @@ export default function ProductDetailPage() {
               className="bg-orange-500 hover:bg-orange-600 text-white"
               onClick={() => setLinkOpen(true)}
             >
-              Link Shopify
+              {product.shopifyProductGid ? 'Manage Shopify link' : 'Link Shopify'}
             </Button>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8">
+      <div className="grid grid-cols-1 gap-6">
+        <div>
           <Tabs defaultValue="variants">
             <TabsList>
               <TabsTrigger value="variants">Variants</TabsTrigger>
               <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="description">Description</TabsTrigger>
               <TabsTrigger value="sync">Sync</TabsTrigger>
             </TabsList>
 
@@ -224,6 +226,14 @@ export default function ProductDetailPage() {
               </Card>
             </TabsContent>
 
+            <TabsContent value="description" className="mt-4">
+              <ProductDescription
+                productId={product.id}
+                isShopifyLinked={!!product.shopifyProductGid}
+                onRequestLinkShopify={() => setLinkOpen(true)}
+              />
+            </TabsContent>
+
             <TabsContent value="sync" className="mt-4">
               <Card>
                 <CardHeader>
@@ -237,42 +247,12 @@ export default function ProductDetailPage() {
             </TabsContent>
           </Tabs>
         </div>
-
-        <div className="lg:col-span-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Shopify</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="text-sm">
-                Status:{' '}
-                {product.shopifyProductGid ? (
-                  <Badge>Linked</Badge>
-                ) : (
-                  <Badge variant="outline">Not linked</Badge>
-                )}
-              </div>
-              <div className="text-xs text-muted-foreground break-all">
-                {product.shopifyProductGid ?? 'No Shopify product linked yet.'}
-              </div>
-              <div className="pt-2">
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => setLinkOpen(true)}
-                >
-                  {product.shopifyProductGid ? 'Change link' : 'Link product'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
       </div>
 
       <LinkShopifyDialog
         open={linkOpen}
         onOpenChange={setLinkOpen}
-        title="Link Shopify product"
+        title={product.shopifyProductGid ? 'Manage Shopify product link' : 'Link Shopify product'}
         label="Shopify Product GID"
         value={product.shopifyProductGid ?? ''}
         placeholder="gid://shopify/Product/..."
@@ -280,6 +260,13 @@ export default function ProductDetailPage() {
           setProduct({
             ...product,
             shopifyProductGid: gid || null,
+            updatedAt: new Date().toISOString(),
+          })
+        }
+        onUnlink={() =>
+          setProduct({
+            ...product,
+            shopifyProductGid: null,
             updatedAt: new Date().toISOString(),
           })
         }
