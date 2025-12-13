@@ -167,30 +167,22 @@ export default function VariantAssetsPage() {
     setIsGenerating(true);
     const id = Math.floor(Date.now() / 1000);
     const now = new Date().toISOString();
-    const draft: FakeVariantAsset = {
+    const label = editInstructions.trim()
+      ? 'edited-variation'
+      : 'variation';
+
+    const draft: FakeVariantGeneration = {
       id,
       variantId,
       createdAt: now,
-      kind: 'generated',
-      status: 'generating',
-      source: 'contentshop',
-      url: placeholderUrl('Generating…', id, 640),
-      isSelected: false,
+      label,
+      status: 'running',
     };
-    setAssets((prev) => [draft, ...prev]);
+    setGenerations((prev) => [draft, ...prev]);
 
     setTimeout(() => {
-      const label = editInstructions.trim() ? 'Edited variation' : 'Variation';
-      setAssets((prev) =>
-        prev.map((a) =>
-          a.id === id
-            ? {
-                ...a,
-                status: 'ready',
-                url: placeholderUrl(label, id, 640),
-              }
-            : a
-        )
+      setGenerations((prev) =>
+        prev.map((g) => (g.id === id ? { ...g, status: 'ready' } : g))
       );
       setIsGenerating(false);
       setLightboxId(null);
@@ -280,9 +272,7 @@ export default function VariantAssetsPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Current assets</CardTitle>
             <div className="flex items-center gap-3">
-              <p className="text-sm text-muted-foreground">
-                {selectedCount} selected
-              </p>
+              <p className="text-xs text-muted-foreground">{selectedCount} selected</p>
               {hasMoreThanThree ? (
                 <Button variant="outline" onClick={() => setViewAllOpen(true)}>
                   View all
@@ -296,28 +286,34 @@ export default function VariantAssetsPage() {
                 No assets yet. Generate your first set.
               </p>
             ) : (
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 overflow-x-auto pb-1">
                 {previewAssets.map((a) => (
                   <button
                     key={a.id}
                     type="button"
                     onClick={() => openLightbox(a.id)}
-                    className="relative h-24 w-24 shrink-0 rounded-md border overflow-hidden"
+                    className="relative h-16 w-16 shrink-0 rounded-md border overflow-hidden"
                     title="Click to open"
                   >
                     <img src={a.url} alt="" className="h-full w-full object-cover" />
                     {a.isSelected ? (
-                      <span className="absolute top-1 right-1 text-[10px] rounded-full bg-black/70 text-white px-2 py-0.5">
-                        Selected
+                      <span className="absolute top-1 right-1 text-[9px] rounded-full bg-black/70 text-white px-1.5 py-0.5">
+                        ✓
                       </span>
                     ) : null}
-                    <span className="absolute bottom-1 left-1 text-[10px] rounded-full bg-black/70 text-white px-2 py-0.5">
+                    <span className="absolute bottom-1 left-1 text-[9px] rounded-full bg-black/70 text-white px-1.5 py-0.5">
                       {a.source}
                     </span>
                   </button>
                 ))}
+
                 {hasMoreThanThree ? (
-                  <Button variant="ghost" onClick={() => setViewAllOpen(true)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => setViewAllOpen(true)}
+                  >
                     View all ({currentAssets.length})
                   </Button>
                 ) : null}
