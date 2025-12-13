@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import { Badge } from '@/components/ui/badge';
@@ -134,6 +135,13 @@ export function VariantsTable(props: {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link
+                          href={`/dashboard/products/${props.product.id}/variants/${v.id}`}
+                        >
+                          Manage assets
+                        </Link>
+                      </DropdownMenuItem>
                       {!isDefault ? (
                         <DropdownMenuItem onClick={() => setDefault(v.id)}>
                           Set as default
