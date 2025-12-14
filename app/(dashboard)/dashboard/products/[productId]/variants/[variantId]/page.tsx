@@ -127,7 +127,8 @@ export default function VariantAssetsPage() {
   const [genCustomInstructions, setGenCustomInstructions] = useState('');
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
-  const [genFormError, setGenFormError] = useState<string | null>(null);
+  const [genValidationError, setGenValidationError] = useState<string | null>(null);
+  const [genSubmitError, setGenSubmitError] = useState<string | null>(null);
 
   // Product images input (array of file URLs)
   const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '', '', '', '', '']);
@@ -346,7 +347,7 @@ export default function VariantAssetsPage() {
 
     if (productImages.length === 0) {
       // The modal should show the validation; keep this as a guard.
-      setGenFormError('At least one product image is required.');
+      setGenValidationError('At least one product image is required.');
       return false;
     }
 
@@ -431,7 +432,9 @@ export default function VariantAssetsPage() {
         [defaultSetId]: (prev[defaultSetId] ?? []).filter((i) => !draftIds.includes(i.id)),
       }));
       setIsGenerating(false);
-      setSyncMessage(err?.message ? String(err.message) : 'Generation failed.');
+      const raw = err?.message ? String(err.message) : 'Generation failed.';
+      setGenSubmitError(`Generation failed. Please try again. (${raw})`);
+      setSyncMessage(raw);
       return false;
     }
   }
@@ -1123,7 +1126,10 @@ export default function VariantAssetsPage() {
         open={generateOpen}
         onOpenChange={(open) => {
           setGenerateOpen(open);
-          if (open) setGenFormError(null);
+          if (open) {
+            setGenValidationError(null);
+            setGenSubmitError(null);
+          }
         }}
       >
         <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
@@ -1141,10 +1147,11 @@ export default function VariantAssetsPage() {
               if (isGenerating) return;
               const productImages = genProductImages.map((s) => s.trim()).filter(Boolean);
               if (productImages.length === 0) {
-                setGenFormError('At least one product image is required.');
+                setGenValidationError('At least one product image is required.');
                 return;
               }
-              setGenFormError(null);
+              setGenValidationError(null);
+              setGenSubmitError(null);
               const ok = await generateNewAssets('generated-image');
               if (ok) setGenerateOpen(false);
             }}
@@ -1174,7 +1181,9 @@ export default function VariantAssetsPage() {
                         </div>
                       ))}
                     </div>
-                    {genFormError ? <div className="text-sm text-red-600">{genFormError}</div> : null}
+                    {genValidationError ? (
+                      <div className="text-sm text-red-600">{genValidationError}</div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1241,7 +1250,12 @@ export default function VariantAssetsPage() {
               </Field>
             </FieldGroup>
 
-            <DialogFooter className="mt-4">
+             {genSubmitError ? (
+               <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                 {genSubmitError}
+               </div>
+             ) : null}
+             <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setGenerateOpen(false)} disabled={isGenerating}>
                 Cancel
               </Button>
