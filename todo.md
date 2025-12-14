@@ -1,6 +1,7 @@
-- add product modal
+- add product modal - Done
+- aspect ratio setting
 - shopify link
 - garment / non-garment workflow
-- description generation
+- description generation - Done
 - invite team members
 - credits system

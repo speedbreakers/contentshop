@@ -133,6 +133,9 @@ export const products = pgTable(
     // Note: left nullable to avoid circular insert issues; enforce in app transaction.
     defaultVariantId: integer('default_variant_id'),
 
+    // Selected product description (from productDescriptions table)
+    selectedDescriptionId: integer('selected_description_id'),
+
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
     deletedAt: timestamp('deleted_at'),
@@ -392,6 +395,38 @@ export const setEvents = pgTable(
   })
 );
 
+/**
+ * Product Descriptions (product-level text generations)
+ * - Stores generated description versions for products.
+ * - Products can have multiple descriptions; one is selected as the current.
+ */
+export const productDescriptions = pgTable(
+  'product_descriptions',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+
+    status: varchar('status', { length: 20 }).notNull().default('generating'), // generating|ready|failed
+    prompt: text('prompt').notNull(),
+    tone: varchar('tone', { length: 20 }), // premium|playful|minimal
+    length: varchar('length', { length: 20 }), // short|medium|long
+    content: text('content'),
+    errorMessage: text('error_message'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('product_descriptions_team_id_idx').on(t.teamId),
+    productIdx: index('product_descriptions_product_id_idx').on(t.productId),
+    statusIdx: index('product_descriptions_status_idx').on(t.status),
+  })
+);
+
 export const teamsRelations = relations(teams, ({ many }) => ({
   teamMembers: many(teamMembers),
   activityLogs: many(activityLogs),
@@ -454,6 +489,18 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   variants: many(productVariants),
   options: many(productOptions),
   sets: many(sets),
+  descriptions: many(productDescriptions),
+}));
+
+export const productDescriptionsRelations = relations(productDescriptions, ({ one }) => ({
+  team: one(teams, {
+    fields: [productDescriptions.teamId],
+    references: [teams.id],
+  }),
+  product: one(products, {
+    fields: [productDescriptions.productId],
+    references: [products.id],
+  }),
 }));
 
 export const productVariantsRelations = relations(
@@ -598,6 +645,8 @@ export type SetItem = typeof setItems.$inferSelect;
 export type NewSetItem = typeof setItems.$inferInsert;
 export type SetEvent = typeof setEvents.$inferSelect;
 export type NewSetEvent = typeof setEvents.$inferInsert;
+export type ProductDescription = typeof productDescriptions.$inferSelect;
+export type NewProductDescription = typeof productDescriptions.$inferInsert;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

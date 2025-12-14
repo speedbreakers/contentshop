@@ -1,12 +1,14 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from './drizzle';
 import {
+  productDescriptions,
   productOptions,
   productVariants,
   products,
   sets,
   variantOptionValues,
 } from './schema';
+import { generateText } from 'ai';
 
 export type CreateProductInput = {
   teamId: number;
@@ -437,4 +439,263 @@ export async function softDeleteVariant(
   return { ok: true as const };
 }
 
+// ============================================================================
+// Product Descriptions
+// ============================================================================
 
+export type CreateProductDescriptionInput = {
+  teamId: number;
+  productId: number;
+  prompt: string;
+  tone?: 'premium' | 'playful' | 'minimal' | null;
+  length?: 'short' | 'medium' | 'long' | null;
+  productTitle: string;
+  productCategory: string;
+  productImageUrl?: string | null;
+};
+
+export async function listProductDescriptions(teamId: number, productId: number) {
+  return await db.query.productDescriptions.findMany({
+    where: and(
+      eq(productDescriptions.teamId, teamId),
+      eq(productDescriptions.productId, productId)
+    ),
+    orderBy: desc(productDescriptions.createdAt),
+  });
+}
+
+export async function getProductDescriptionById(
+  teamId: number,
+  productId: number,
+  descriptionId: number
+) {
+  const result = await db.query.productDescriptions.findFirst({
+    where: and(
+      eq(productDescriptions.teamId, teamId),
+      eq(productDescriptions.productId, productId),
+      eq(productDescriptions.id, descriptionId)
+    ),
+  });
+  return result ?? null;
+}
+
+export async function createProductDescription(input: CreateProductDescriptionInput) {
+  // 1. Create "generating" record
+  const [record] = await db
+    .insert(productDescriptions)
+    .values({
+      teamId: input.teamId,
+      productId: input.productId,
+      status: 'generating',
+      prompt: input.prompt,
+      tone: input.tone ?? null,
+      length: input.length ?? null,
+      content: null,
+      errorMessage: null,
+    })
+    .returning();
+
+  if (!record) {
+    throw new Error('Failed to create product description record');
+  }
+
+  // 2. Build the AI prompt
+  const toneInstruction = input.tone
+    ? `Use a ${input.tone} tone.`
+    : '';
+  const lengthInstruction = input.length === 'short'
+    ? 'Keep it concise, around 50 words.'
+    : input.length === 'long'
+      ? 'Write a detailed description, around 150-200 words.'
+      : 'Write a medium-length description, around 80-100 words.';
+
+  const textPrompt = `You are an expert e-commerce copywriter. Generate a compelling product description for an online store.
+
+Product: ${input.productTitle}
+Category: ${input.productCategory}
+
+${toneInstruction}
+${lengthInstruction}
+
+User instructions: ${input.prompt}
+
+${input.productImageUrl ? 'I have attached the product image for reference. Use the visual details from the image to create a more accurate and compelling description.' : ''}
+
+Write only the description text. Do not include any headers, labels, or markdown formatting. Make it engaging and suitable for an e-commerce product page.`;
+
+  try {
+    // 3. Call Gemini via Vercel AI SDK (multimodal if image available)
+    let result: any;
+    
+    if (input.productImageUrl) {
+      // Fetch image as bytes for multimodal generation
+      let imageData: { bytes: Uint8Array; mimeType: string } | null = null;
+      try {
+        const imageRes = await fetch(input.productImageUrl);
+        if (imageRes.ok) {
+          const mimeType = imageRes.headers.get('content-type') ?? 'image/png';
+          const ab = await imageRes.arrayBuffer();
+          imageData = { bytes: new Uint8Array(ab), mimeType };
+        }
+      } catch (e) {
+        // If image fetch fails, continue without image
+        console.warn('Failed to fetch product image for description generation:', e);
+      }
+
+      if (imageData) {
+        // Multimodal: include product image + prompt
+        result = await generateText({
+          model: 'google/gemini-2.0-flash',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: textPrompt },
+                { type: 'image', image: imageData.bytes, mimeType: imageData.mimeType },
+              ],
+            },
+          ],
+        } as any);
+      } else {
+        // Fallback to text-only if image fetch failed
+        result = await generateText({
+          model: 'google/gemini-2.0-flash',
+          prompt: textPrompt,
+        } as any);
+      }
+    } else {
+      // Text-only generation
+      result = await generateText({
+        model: 'google/gemini-2.0-flash',
+        prompt: textPrompt,
+      } as any);
+    }
+
+    const content = typeof result === 'string' 
+      ? result 
+      : (result as any)?.text ?? (result as any)?.content ?? '';
+
+    // 4. Update record with generated content
+    const [updated] = await db
+      .update(productDescriptions)
+      .set({
+        status: 'ready',
+        content: content.trim(),
+      })
+      .where(eq(productDescriptions.id, record.id))
+      .returning();
+
+    return updated ?? record;
+  } catch (error: any) {
+    // Update record with error
+    const [failed] = await db
+      .update(productDescriptions)
+      .set({
+        status: 'failed',
+        errorMessage: error?.message ?? 'Generation failed',
+      })
+      .where(eq(productDescriptions.id, record.id))
+      .returning();
+
+    return failed ?? record;
+  }
+}
+
+export async function updateProductDescriptionContent(
+  teamId: number,
+  productId: number,
+  descriptionId: number,
+  content: string
+) {
+  const [updated] = await db
+    .update(productDescriptions)
+    .set({ content })
+    .where(
+      and(
+        eq(productDescriptions.teamId, teamId),
+        eq(productDescriptions.productId, productId),
+        eq(productDescriptions.id, descriptionId)
+      )
+    )
+    .returning();
+
+  return updated ?? null;
+}
+
+export async function selectProductDescription(
+  teamId: number,
+  productId: number,
+  descriptionId: number
+) {
+  // Verify description exists and belongs to the product
+  const desc = await db.query.productDescriptions.findFirst({
+    where: and(
+      eq(productDescriptions.teamId, teamId),
+      eq(productDescriptions.productId, productId),
+      eq(productDescriptions.id, descriptionId)
+    ),
+    columns: { id: true },
+  });
+
+  if (!desc) {
+    return null;
+  }
+
+  const [updated] = await db
+    .update(products)
+    .set({
+      selectedDescriptionId: descriptionId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(products.teamId, teamId),
+        eq(products.id, productId),
+        isNull(products.deletedAt)
+      )
+    )
+    .returning();
+
+  return updated ?? null;
+}
+
+export async function deleteProductDescription(
+  teamId: number,
+  productId: number,
+  descriptionId: number
+) {
+  // Check if this is the selected description
+  const product = await db.query.products.findFirst({
+    where: and(
+      eq(products.teamId, teamId),
+      eq(products.id, productId),
+      isNull(products.deletedAt)
+    ),
+    columns: { id: true, selectedDescriptionId: true },
+  });
+
+  if (!product) {
+    return { ok: false as const, reason: 'product_not_found' as const };
+  }
+
+  // If deleting the selected description, clear the selection
+  if (product.selectedDescriptionId === descriptionId) {
+    await db
+      .update(products)
+      .set({ selectedDescriptionId: null, updatedAt: new Date() })
+      .where(eq(products.id, productId));
+  }
+
+  // Delete the description
+  await db
+    .delete(productDescriptions)
+    .where(
+      and(
+        eq(productDescriptions.teamId, teamId),
+        eq(productDescriptions.productId, productId),
+        eq(productDescriptions.id, descriptionId)
+      )
+    );
+
+  return { ok: true as const };
+}
