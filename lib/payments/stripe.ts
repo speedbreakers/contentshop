@@ -50,70 +50,92 @@ export async function createCheckoutSession({
 }
 
 export async function createCustomerPortalSession(team: Team) {
-  if (!team.stripeCustomerId || !team.stripeProductId) {
+  if (!team.stripeCustomerId) {
     redirect('/pricing');
   }
 
-  let configuration: Stripe.BillingPortal.Configuration;
-  const configurations = await stripe.billingPortal.configurations.list();
+  // Fetch all Content Shop products for plan switching
+  const products = await stripe.products.list({
+    active: true,
+    limit: 100,
+  });
 
-  if (configurations.data.length > 0) {
-    configuration = configurations.data[0];
-  } else {
-    const product = await stripe.products.retrieve(team.stripeProductId);
-    if (!product.active) {
-      throw new Error("Team's product is not active in Stripe");
-    }
+  // Filter to only subscription products (those with tier metadata)
+  const contentShopProducts = products.data.filter(
+    (p) => p.metadata?.tier && ['starter', 'growth', 'scale'].includes(p.metadata.tier)
+  );
 
-    const prices = await stripe.prices.list({
-      product: product.id,
-      active: true
-    });
-    if (prices.data.length === 0) {
-      throw new Error("No active prices found for the team's product");
-    }
-
-    configuration = await stripe.billingPortal.configurations.create({
-      business_profile: {
-        headline: 'Manage your subscription'
-      },
-      features: {
-        subscription_update: {
-          enabled: true,
-          default_allowed_updates: ['price', 'quantity', 'promotion_code'],
-          proration_behavior: 'create_prorations',
-          products: [
-            {
-              product: product.id,
-              prices: prices.data.map((price) => price.id)
-            }
-          ]
-        },
-        subscription_cancel: {
-          enabled: true,
-          mode: 'at_period_end',
-          cancellation_reason: {
-            enabled: true,
-            options: [
-              'too_expensive',
-              'missing_features',
-              'switched_service',
-              'unused',
-              'other'
-            ]
-          }
-        },
-        payment_method_update: {
-          enabled: true
-        }
-      }
+  if (contentShopProducts.length === 0) {
+    // Fallback: just use portal without plan switching
+    return stripe.billingPortal.sessions.create({
+      customer: team.stripeCustomerId,
+      return_url: `${process.env.BASE_URL}/dashboard`,
     });
   }
 
+  // Get all prices for these products
+  const productConfigs: Stripe.BillingPortal.ConfigurationCreateParams.Features.SubscriptionUpdate.Product[] = [];
+  
+  for (const product of contentShopProducts) {
+    const prices = await stripe.prices.list({
+      product: product.id,
+      active: true,
+      type: 'recurring', // Only subscription prices, not metered
+    });
+
+    // Filter to only monthly subscription prices (not metered)
+    const subscriptionPrices = prices.data.filter(
+      (price) => price.recurring?.usage_type !== 'metered'
+    );
+
+    if (subscriptionPrices.length > 0) {
+      productConfigs.push({
+        product: product.id,
+        prices: subscriptionPrices.map((price) => price.id),
+      });
+    }
+  }
+
+  // Create or update portal configuration with all products
+  // Always create fresh to ensure all products are included
+  const configuration = await stripe.billingPortal.configurations.create({
+    business_profile: {
+      headline: 'Manage your Content Shop subscription',
+    },
+    features: {
+      subscription_update: {
+        enabled: true,
+        default_allowed_updates: ['price', 'promotion_code'],
+        proration_behavior: 'create_prorations',
+        products: productConfigs,
+      },
+      subscription_cancel: {
+        enabled: true,
+        mode: 'at_period_end',
+        cancellation_reason: {
+          enabled: true,
+          options: [
+            'too_expensive',
+            'missing_features',
+            'switched_service',
+            'unused',
+            'other',
+          ],
+        },
+      },
+      payment_method_update: {
+        enabled: true,
+      },
+      invoice_history: {
+        enabled: true,
+      },
+    },
+  });
+
   return stripe.billingPortal.sessions.create({
     customer: team.stripeCustomerId,
-    return_url: `${process.env.BASE_URL}/dashboard`,
-    configuration: configuration.id
+    return_url: `${process.env.BASE_URL}/pricing`,
+    configuration: configuration.id,
   });
 }
 
@@ -222,12 +244,19 @@ export async function handleSubscriptionCreated(
   let periodStart: Date;
   let periodEnd: Date;
 
-  if (subscription.current_period_start && subscription.current_period_end) {
-    periodStart = new Date(subscription.current_period_start * 1000);
-    periodEnd = new Date(subscription.current_period_end * 1000);
-  } else if (subscription.trial_end) {
+  // Type assertion for subscription period properties
+  const sub = subscription as unknown as {
+    current_period_start?: number;
+    current_period_end?: number;
+    trial_end?: number | null;
+  };
+
+  if (sub.current_period_start && sub.current_period_end) {
+    periodStart = new Date(sub.current_period_start * 1000);
+    periodEnd = new Date(sub.current_period_end * 1000);
+  } else if (sub.trial_end) {
     periodStart = now;
-    periodEnd = new Date(subscription.trial_end * 1000);
+    periodEnd = new Date(sub.trial_end * 1000);
   } else {
     periodStart = now;
     periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -248,19 +277,26 @@ export async function handleSubscriptionCreated(
  * Handle invoice paid - provision credits for renewal
  */
 export async function handleInvoicePaid(invoice: Stripe.Invoice) {
+  // Type assertion for invoice subscription property
+  const invoiceData = invoice as unknown as {
+    subscription?: string | { id: string } | null;
+    billing_reason?: string;
+  };
+
   // Only process subscription invoices (not one-time payments)
-  if (!invoice.subscription) {
+  if (!invoiceData.subscription) {
     return;
   }
 
-  const subscriptionId = typeof invoice.subscription === 'string' 
-    ? invoice.subscription 
-    : invoice.subscription.id;
+  const subscriptionId = typeof invoiceData.subscription === 'string' 
+    ? invoiceData.subscription 
+    : invoiceData.subscription.id;
 
   // Fetch the full subscription to get period dates
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+  const subscriptionResponse = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['items.data.price.product'],
   });
+  const subscription = subscriptionResponse as Stripe.Subscription;
 
   const customerId = subscription.customer as string;
   const team = await getTeamByStripeCustomerId(customerId);
@@ -287,14 +323,20 @@ export async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   // Check if this is a renewal (not the first invoice)
   // First invoice is handled by handleSubscriptionCreated
-  if (invoice.billing_reason === 'subscription_cycle') {
+  if (invoiceData.billing_reason === 'subscription_cycle') {
     const now = new Date();
     let periodStart: Date;
     let periodEnd: Date;
 
-    if (subscription.current_period_start && subscription.current_period_end) {
-      periodStart = new Date(subscription.current_period_start * 1000);
-      periodEnd = new Date(subscription.current_period_end * 1000);
+    // Type assertion for subscription period properties
+    const sub = subscription as unknown as {
+      current_period_start?: number;
+      current_period_end?: number;
+    };
+
+    if (sub.current_period_start && sub.current_period_end) {
+      periodStart = new Date(sub.current_period_start * 1000);
+      periodEnd = new Date(sub.current_period_end * 1000);
     } else {
       periodStart = now;
       periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
