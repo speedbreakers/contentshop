@@ -47,45 +47,45 @@ export default function SecurityPage() {
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="current-password">Current Password</FieldLabel>
-                <Input
-                  id="current-password"
-                  name="currentPassword"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  minLength={8}
-                  maxLength={100}
-                  defaultValue={passwordState.currentPassword}
-                />
+              <Input
+                id="current-password"
+                name="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                required
+                minLength={8}
+                maxLength={100}
+                defaultValue={passwordState.currentPassword}
+              />
               </Field>
               <Field>
                 <FieldLabel htmlFor="new-password">New Password</FieldLabel>
-                <Input
-                  id="new-password"
-                  name="newPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={8}
-                  maxLength={100}
-                  defaultValue={passwordState.newPassword}
-                />
+              <Input
+                id="new-password"
+                name="newPassword"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                maxLength={100}
+                defaultValue={passwordState.newPassword}
+              />
               </Field>
               <Field>
                 <FieldLabel htmlFor="confirm-password">Confirm New Password</FieldLabel>
-                <Input
-                  id="confirm-password"
-                  name="confirmPassword"
-                  type="password"
-                  required
-                  minLength={8}
-                  maxLength={100}
-                  defaultValue={passwordState.confirmPassword}
-                />
+              <Input
+                id="confirm-password"
+                name="confirmPassword"
+                type="password"
+                required
+                minLength={8}
+                maxLength={100}
+                defaultValue={passwordState.confirmPassword}
+              />
               </Field>
               {passwordState.error ? <FieldError>{passwordState.error}</FieldError> : null}
               {passwordState.success ? (
-                <p className="text-green-500 text-sm">{passwordState.success}</p>
+              <p className="text-green-500 text-sm">{passwordState.success}</p>
               ) : null}
             </FieldGroup>
             <Button
@@ -121,15 +121,15 @@ export default function SecurityPage() {
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="delete-password">Confirm Password</FieldLabel>
-                <Input
-                  id="delete-password"
-                  name="password"
-                  type="password"
-                  required
-                  minLength={8}
-                  maxLength={100}
-                  defaultValue={deleteState.password}
-                />
+              <Input
+                id="delete-password"
+                name="password"
+                type="password"
+                required
+                minLength={8}
+                maxLength={100}
+                defaultValue={deleteState.password}
+              />
               </Field>
               {deleteState.error ? <FieldError>{deleteState.error}</FieldError> : null}
             </FieldGroup>

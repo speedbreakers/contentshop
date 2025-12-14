@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";;
+import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -9,7 +9,11 @@ import { cn } from "@/lib/utils";
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+  // Default to non-modal to avoid globally disabling pointer-events on <body>.
+  // (We still keep escape/outside-click handling via Radix.)
+  return (
+    <DropdownMenuPrimitive.Root data-slot="dropdown-menu" modal={false} {...props} />
+  );
 }
 
 function DropdownMenuPortal({

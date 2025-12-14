@@ -4,6 +4,7 @@ import {
   productOptions,
   productVariants,
   products,
+  sets,
   variantOptionValues,
 } from './schema';
 
@@ -62,6 +63,18 @@ export async function createProductWithDefaultVariant(input: CreateProductInput)
     if (!updatedProduct) {
       throw new Error('Failed to set default variant on product');
     }
+
+    // Ensure a backend-generated default set exists for this variant.
+    await tx.insert(sets).values({
+      teamId: input.teamId,
+      scopeType: 'variant',
+      productId: updatedProduct.id,
+      variantId: defaultVariant.id,
+      isDefault: true,
+      name: 'Default',
+      description: 'All generations (auto-created)',
+      createdByUserId: null,
+    });
 
     const optionsToCreate = (input.options ?? []).filter(
       (o) => o?.name && Number.isFinite(o.position)
@@ -179,6 +192,18 @@ export async function createVariant(input: CreateVariantInput) {
     if (!variant) {
       throw new Error('Failed to create variant');
     }
+
+    // Ensure a backend-generated default set exists for this new variant.
+    await tx.insert(sets).values({
+      teamId: input.teamId,
+      scopeType: 'variant',
+      productId: input.productId,
+      variantId: variant.id,
+      isDefault: true,
+      name: 'Default',
+      description: 'All generations (auto-created)',
+      createdByUserId: null,
+    });
 
     const values = (input.optionValues ?? []).filter(
       (v) => Number.isFinite(v.productOptionId) && typeof v.value === 'string'

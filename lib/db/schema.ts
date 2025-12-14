@@ -5,6 +5,8 @@ import {
   text,
   timestamp,
   integer,
+  jsonb,
+  boolean,
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
@@ -194,11 +196,110 @@ export const variantOptionValues = pgTable(
   })
 );
 
+/**
+ * Sets (internal grouping for generations)
+ * - A Set is an internal, user-managed grouping for organizing lots of generated outputs.
+ * - This is NOT Shopify Collections and is NOT (necessarily) marketing campaigns.
+ */
+
+export const sets = pgTable(
+  'sets',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+
+    // Scope: variant today; keep flexible for future (e.g. product via default variant).
+    scopeType: varchar('scope_type', { length: 20 }).notNull().default('variant'),
+    productId: integer('product_id').references(() => products.id),
+    variantId: integer('variant_id').references(() => productVariants.id),
+
+    // A single, backend-generated default set per variant.
+    // All generations go here unless the user moves them to another set.
+    isDefault: boolean('is_default').notNull().default(false),
+
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+
+    createdByUserId: integer('created_by_user_id').references(() => users.id),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (t) => ({
+    teamIdx: index('sets_team_id_idx').on(t.teamId),
+    teamVariantIdx: index('sets_team_variant_id_idx').on(t.teamId, t.variantId),
+    teamVariantDefaultIdx: index('sets_team_variant_default_idx').on(
+      t.teamId,
+      t.variantId,
+      t.isDefault
+    ),
+    teamDeletedIdx: index('sets_team_deleted_at_idx').on(t.teamId, t.deletedAt),
+  })
+);
+
+export const setItems = pgTable(
+  'set_items',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    setId: integer('set_id')
+      .notNull()
+      .references(() => sets.id),
+
+    // Polymorphic ref: variant_image | variant_text (future). For now itemId is an integer.
+    itemType: varchar('item_type', { length: 30 }).notNull(),
+    itemId: integer('item_id').notNull(),
+
+    sortOrder: integer('sort_order').notNull().default(0),
+    addedByUserId: integer('added_by_user_id').references(() => users.id),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    setIdx: index('set_items_set_id_idx').on(t.setId),
+    teamItemIdx: index('set_items_team_item_idx').on(t.teamId, t.itemType, t.itemId),
+    uniqueItemInSet: uniqueIndex('set_items_unique_item_in_set').on(
+      t.setId,
+      t.itemType,
+      t.itemId
+    ),
+  })
+);
+
+export const setEvents = pgTable(
+  'set_events',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    setId: integer('set_id')
+      .notNull()
+      .references(() => sets.id),
+    actorUserId: integer('actor_user_id').references(() => users.id),
+
+    type: varchar('type', { length: 30 }).notNull(),
+    metadata: jsonb('metadata'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    setIdx: index('set_events_set_id_idx').on(t.setId),
+    teamIdx: index('set_events_team_id_idx').on(t.teamId),
+  })
+);
+
 export const teamsRelations = relations(teams, ({ many }) => ({
   teamMembers: many(teamMembers),
   activityLogs: many(activityLogs),
   invitations: many(invitations),
   products: many(products),
+  sets: many(sets),
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -246,6 +347,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   }),
   variants: many(productVariants),
   options: many(productOptions),
+  sets: many(sets),
 }));
 
 export const productVariantsRelations = relations(
@@ -260,6 +362,7 @@ export const productVariantsRelations = relations(
       references: [products.id],
     }),
     optionValues: many(variantOptionValues),
+    sets: many(sets),
   })
 );
 
@@ -289,6 +392,49 @@ export const variantOptionValuesRelations = relations(
   })
 );
 
+export const setsRelations = relations(sets, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [sets.teamId],
+    references: [teams.id],
+  }),
+  product: one(products, {
+    fields: [sets.productId],
+    references: [products.id],
+  }),
+  variant: one(productVariants, {
+    fields: [sets.variantId],
+    references: [productVariants.id],
+  }),
+  items: many(setItems),
+  events: many(setEvents),
+}));
+
+export const setItemsRelations = relations(setItems, ({ one }) => ({
+  team: one(teams, {
+    fields: [setItems.teamId],
+    references: [teams.id],
+  }),
+  set: one(sets, {
+    fields: [setItems.setId],
+    references: [sets.id],
+  }),
+}));
+
+export const setEventsRelations = relations(setEvents, ({ one }) => ({
+  team: one(teams, {
+    fields: [setEvents.teamId],
+    references: [teams.id],
+  }),
+  set: one(sets, {
+    fields: [setEvents.setId],
+    references: [sets.id],
+  }),
+  actor: one(users, {
+    fields: [setEvents.actorUserId],
+    references: [users.id],
+  }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
@@ -307,6 +453,12 @@ export type ProductOption = typeof productOptions.$inferSelect;
 export type NewProductOption = typeof productOptions.$inferInsert;
 export type VariantOptionValue = typeof variantOptionValues.$inferSelect;
 export type NewVariantOptionValue = typeof variantOptionValues.$inferInsert;
+export type Set = typeof sets.$inferSelect;
+export type NewSet = typeof sets.$inferInsert;
+export type SetItem = typeof setItems.$inferSelect;
+export type NewSetItem = typeof setItems.$inferInsert;
+export type SetEvent = typeof setEvents.$inferSelect;
+export type NewSetEvent = typeof setEvents.$inferInsert;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

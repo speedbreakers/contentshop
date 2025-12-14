@@ -7,8 +7,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +28,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { fakeProducts } from '@/lib/fake/products';
 import { getMockVariantAssets } from '@/lib/fake/variant-assets';
-import type { FakeVariantAsset, FakeVariantGeneration } from '@/lib/fake/variant-assets';
+import type { FakeVariantAsset } from '@/lib/fake/variant-assets';
+import { getMockSets, type FakeSet } from '@/lib/fake/sets';
+import { getMockSetItems, type FakeSetItem } from '@/lib/fake/set-items';
 
 function formatWhen(iso: string) {
   const d = new Date(iso);
@@ -57,26 +67,79 @@ export default function VariantAssetsPage() {
   const seed = useMemo(() => getMockVariantAssets(variantId), [variantId]);
 
   const [assets, setAssets] = useState<FakeVariantAsset[]>(() => structuredClone(seed.assets));
-  const [generations, setGenerations] = useState<FakeVariantGeneration[]>(() =>
-    structuredClone(seed.generations)
-  );
+  const [sets, setSets] = useState<FakeSet[]>(() => getMockSets(variantId));
+  const [activeFolderId, setActiveFolderId] = useState<number | null>(() => {
+    const seeded = getMockSets(variantId);
+    return seeded.find((s) => s.isDefault)?.id ?? seeded[0]?.id ?? null;
+  });
+  const [itemsBySetId, setItemsBySetId] = useState<Record<number, FakeSetItem[]>>(() => {
+    const seeded = getMockSets(variantId);
+    const map: Record<number, FakeSetItem[]> = {};
+    for (const s of seeded) {
+      map[s.id] = getMockSetItems(s.id);
+    }
+    return map;
+  });
 
   const [viewAllOpen, setViewAllOpen] = useState(false);
-  const [lightboxId, setLightboxId] = useState<number | null>(null);
+  const [lightbox, setLightbox] = useState<{ kind: 'asset' | 'setItem'; id: number; setId?: number } | null>(null);
   const [editInstructions, setEditInstructions] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
 
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [newSetOpen, setNewSetOpen] = useState(false);
+  const [renameSetId, setRenameSetId] = useState<number | null>(null);
+  const [renameSetName, setRenameSetName] = useState('');
+  const [searchItems, setSearchItems] = useState('');
+  const [searchFolders, setSearchFolders] = useState('');
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [fetchMessage, setFetchMessage] = useState<string | null>(null);
 
-  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteId, setDeleteId] = useState<{ kind: 'asset' | 'set' | 'setItem'; id: number; setId?: number } | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [details, setDetails] = useState<{ setId: number; itemId: number } | null>(null);
 
-  const lightboxAsset = lightboxId ? assets.find((a) => a.id === lightboxId) ?? null : null;
-  const deleteAsset = deleteId ? assets.find((a) => a.id === deleteId) ?? null : null;
+  const lightboxAsset =
+    lightbox?.kind === 'asset' ? assets.find((a) => a.id === lightbox.id) ?? null : null;
+  const lightboxSetItem =
+    lightbox?.kind === 'setItem'
+      ? (itemsBySetId[lightbox.setId ?? -1] ?? []).find((i) => i.id === lightbox.id) ?? null
+      : null;
+
+  const deleteAsset =
+    deleteId?.kind === 'asset' ? assets.find((a) => a.id === deleteId.id) ?? null : null;
+  const deleteSet =
+    deleteId?.kind === 'set' ? sets.find((s) => s.id === deleteId.id) ?? null : null;
+  const deleteSetItem =
+    deleteId?.kind === 'setItem'
+      ? (itemsBySetId[deleteId.setId ?? -1] ?? []).find((i) => i.id === deleteId.id) ?? null
+      : null;
+  const detailsItem = details
+    ? (itemsBySetId[details.setId] ?? []).find((i) => i.id === details.itemId) ?? null
+    : null;
+  const detailsFolder = details?.setId
+    ? sets.find((s) => s.id === details.setId) ?? null
+    : null;
 
   const selectedCount = assets.filter((a) => a.isSelected).length;
   const hasShopifyLink = !!product?.shopifyProductGid;
+  const defaultSetId = useMemo(() => sets.find((s) => s.isDefault)?.id ?? null, [sets]);
+  const selectedGenerationCount = useMemo(
+    () => Object.values(itemsBySetId).flat().filter((i) => i.isSelected).length,
+    [itemsBySetId]
+  );
+  const selectedGenerationCountBySetId = useMemo(() => {
+    const out: Record<number, number> = {};
+    for (const [setIdStr, items] of Object.entries(itemsBySetId)) {
+      const setId = Number(setIdStr);
+      out[setId] = (items ?? []).filter((i) => i.isSelected).length;
+    }
+    return out;
+  }, [itemsBySetId]);
+  const selectedGenerationCountInActiveFolder = useMemo(() => {
+    if (!activeFolderId) return 0;
+    return selectedGenerationCountBySetId[activeFolderId] ?? 0;
+  }, [activeFolderId, selectedGenerationCountBySetId]);
 
   const currentAssets = assets
     .slice()
@@ -97,6 +160,15 @@ export default function VariantAssetsPage() {
     setAssets((prev) =>
       prev.map((a) => (a.id === assetId ? { ...a, isSelected: !a.isSelected } : a))
     );
+  }
+
+  function toggleSetItemSelected(setId: number, itemId: number) {
+    setItemsBySetId((prev) => ({
+      ...prev,
+      [setId]: (prev[setId] ?? []).map((i) =>
+        i.id === itemId ? { ...i, isSelected: !i.isSelected } : i
+      ),
+    }));
   }
 
   function mockFetchLatest() {
@@ -137,77 +209,187 @@ export default function VariantAssetsPage() {
   }
 
   function mockGenerateNewAssets(label = 'generated-image') {
+    if (!defaultSetId) {
+      setSyncMessage('Default folder is missing (unexpected).');
+      return;
+    }
     setIsGenerating(true);
     const id = Math.floor(Date.now() / 1000);
     const now = new Date().toISOString();
-    const draft: FakeVariantGeneration = {
+    const draft: FakeSetItem = {
       id,
-      variantId,
+      setId: defaultSetId,
       createdAt: now,
       label,
-      status: 'running',
+      status: 'generating',
+      url: placeholderUrl('Generating…', id, 640),
+      prompt: editInstructions.trim() || 'Generate a clean, high-quality product image.',
+      isSelected: false,
     };
-    setGenerations((prev) => [draft, ...prev]);
+
+    setItemsBySetId((prev) => ({
+      ...prev,
+      [defaultSetId]: [draft, ...(prev[defaultSetId] ?? [])],
+    }));
 
     setTimeout(() => {
-      setGenerations((prev) =>
-        prev.map((g) => (g.id === id ? { ...g, status: 'ready' } : g))
-      );
+      setItemsBySetId((prev) => ({
+        ...prev,
+        [defaultSetId]: (prev[defaultSetId] ?? []).map((i) =>
+          i.id === id
+            ? { ...i, status: 'ready', url: placeholderUrl(label, id, 640) }
+            : i
+        ),
+      }));
       setIsGenerating(false);
     }, 900);
   }
 
   function openLightbox(assetId: number) {
     setEditInstructions('');
-    setLightboxId(assetId);
+    setLightbox({ kind: 'asset', id: assetId });
   }
 
   function mockGenerateFromEdit() {
-    if (!lightboxAsset) return;
+    // This should create a new generated item under the default folder (not current assets).
+    if (!defaultSetId) {
+      setSyncMessage('Default folder is missing (unexpected).');
+      return;
+    }
+    const base = lightboxSetItem ?? lightboxAsset;
+    if (!base) return;
     setIsGenerating(true);
     const id = Math.floor(Date.now() / 1000);
     const now = new Date().toISOString();
     const label = editInstructions.trim()
       ? 'edited-variation'
       : 'variation';
-
-    const draft: FakeVariantGeneration = {
+    const draft: FakeSetItem = {
       id,
-      variantId,
+      setId: defaultSetId,
       createdAt: now,
       label,
-      status: 'running',
+      status: 'generating',
+      url: placeholderUrl('Generating…', id, 640),
+      prompt: editInstructions.trim() || 'Generate a variation based on the selected image.',
+      isSelected: false,
     };
-    setGenerations((prev) => [draft, ...prev]);
+
+    setItemsBySetId((prev) => ({
+      ...prev,
+      [defaultSetId]: [draft, ...(prev[defaultSetId] ?? [])],
+    }));
 
     setTimeout(() => {
-      setGenerations((prev) =>
-        prev.map((g) => (g.id === id ? { ...g, status: 'ready' } : g))
-      );
+      setItemsBySetId((prev) => ({
+        ...prev,
+        [defaultSetId]: (prev[defaultSetId] ?? []).map((i) =>
+          i.id === id
+            ? { ...i, status: 'ready', url: placeholderUrl(label, id, 640) }
+            : i
+        ),
+      }));
       setIsGenerating(false);
-      setLightboxId(null);
+      setLightbox(null);
     }, 900);
   }
 
-  function mockSyncSelected() {
+  function mockSyncFolder(setId: number) {
     if (!hasShopifyLink) {
       setSyncMessage('Link a Shopify product to sync.');
       return;
     }
-    if (selectedCount === 0) {
-      setSyncMessage('Select at least one asset to sync.');
+    const count = selectedGenerationCountBySetId[setId] ?? 0;
+    if (count === 0) {
+      setSyncMessage('Select at least one item in this folder to sync.');
       return;
     }
-    setSyncMessage('Syncing selected assets to Shopify…');
+    setSyncMessage('Syncing selected folder items to Shopify…');
     setTimeout(() => {
-      setSyncMessage(`Synced ${selectedCount} asset(s) to Shopify (mock).`);
+      setSyncMessage(`Synced ${count} item(s) from the folder to Shopify (mock).`);
     }, 650);
   }
 
   function removeAsset(assetId: number) {
     setAssets((prev) => prev.filter((a) => a.id !== assetId));
     setDeleteId(null);
-    setLightboxId((prev) => (prev === assetId ? null : prev));
+    setLightbox((prev) =>
+      prev?.kind === 'asset' && prev.id === assetId ? null : prev
+    );
+  }
+
+  function removeSetItem(setId: number, itemId: number) {
+    setItemsBySetId((prev) => ({
+      ...prev,
+      [setId]: (prev[setId] ?? []).filter((i) => i.id !== itemId),
+    }));
+    setDeleteId(null);
+    setLightbox((prev) =>
+      prev?.kind === 'setItem' && prev.id === itemId ? null : prev
+    );
+  }
+
+  function createSet(name: string) {
+    const now = new Date().toISOString();
+    const id = Math.floor(Date.now() / 1000);
+    const s: FakeSet = {
+      id,
+      variantId,
+      isDefault: false,
+      name,
+      description: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setSets((prev) => [s, ...prev]);
+    setItemsBySetId((prev) => ({ ...prev, [id]: [] }));
+    setActiveFolderId(id);
+  }
+
+  function renameSet(setId: number, name: string) {
+    setSets((prev) =>
+      prev.map((s) => (s.id === setId ? { ...s, name, updatedAt: new Date().toISOString() } : s))
+    );
+  }
+
+  function deleteSetById(setId: number) {
+    if (sets.find((s) => s.id === setId)?.isDefault) {
+      setSyncMessage('Cannot delete the default folder.');
+      setDeleteId(null);
+      return;
+    }
+    setSets((prev) => prev.filter((s) => s.id !== setId));
+    setItemsBySetId((prev) => {
+      const copy = { ...prev };
+      delete copy[setId];
+      return copy;
+    });
+    setActiveFolderId((prev) => {
+      if (prev !== setId) return prev;
+      return defaultSetId ?? sets.find((s) => s.id !== setId)?.id ?? null;
+    });
+    setDeleteId(null);
+  }
+
+  function moveSelectedItemsFromFolder(sourceSetId: number, targetSetId: number) {
+    setItemsBySetId((prev) => {
+      const next: Record<number, FakeSetItem[]> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        next[Number(k)] = [...v];
+      }
+
+      const moved: FakeSetItem[] = [];
+      const remaining: FakeSetItem[] = [];
+      for (const item of next[sourceSetId] ?? []) {
+        if (item.isSelected) moved.push({ ...item, setId: targetSetId, isSelected: false });
+        else remaining.push(item);
+      }
+      next[sourceSetId] = remaining;
+
+      next[targetSetId] = [...moved, ...(next[targetSetId] ?? [])];
+      return next;
+    });
+    setMoveOpen(false);
   }
 
   if (!product || !variant) {
@@ -246,14 +428,6 @@ export default function VariantAssetsPage() {
               Fetch latest
             </Button>
             <Button
-              variant="outline"
-              onClick={mockSyncSelected}
-              disabled={isGenerating || selectedCount === 0}
-              title={hasShopifyLink ? undefined : 'Link Shopify to sync'}
-            >
-              Sync
-            </Button>
-            <Button
               className="bg-orange-500 hover:bg-orange-600 text-white"
               onClick={() => setGenerateOpen(true)}
               disabled={isGenerating}
@@ -282,9 +456,9 @@ export default function VariantAssetsPage() {
           </CardHeader>
           <CardContent>
             {previewAssets.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No assets yet. Generate your first set.
-              </p>
+                  <p className="text-sm text-muted-foreground">
+                    No assets yet. Generate your first folder.
+                  </p>
             ) : (
               <div className="flex items-center gap-3 overflow-x-auto pb-1">
                 {previewAssets.map((a) => (
@@ -323,39 +497,249 @@ export default function VariantAssetsPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div>
               <CardTitle>Generations</CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                WIP — this will expand into a full history explorer.
+                Folders help you organize generations. The default folder is always present, and new generations land there by default.
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                {selectedGenerationCount} selected
               </p>
             </div>
+
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setNewSetOpen(true)}>
+                New folder
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setMoveOpen(true)}
+                disabled={!activeFolderId || selectedGenerationCountInActiveFolder === 0}
+              >
+                Move
+              </Button>
+            </div>
           </CardHeader>
+
           <CardContent>
-            {generations.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No generations yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {generations
-                  .slice()
-                  .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-                  .map((g) => (
-                    <div
-                      key={g.id}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-md border bg-muted" />
-                        <div>
-                          <div className="font-medium">{g.label}</div>
-                          <div className="text-xs text-muted-foreground">{g.status}</div>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Left pane: folders */}
+              <div className="lg:col-span-4 rounded-md border p-3 space-y-3">
+                <Input
+                  value={searchFolders}
+                  onChange={(e) => setSearchFolders(e.target.value)}
+                  placeholder="Search folders…"
+                />
+
+                <div className="space-y-2">
+                  {sets
+                    .slice()
+                    .sort(
+                      (a, b) =>
+                        Number(b.isDefault) - Number(a.isDefault) ||
+                        b.updatedAt.localeCompare(a.updatedAt)
+                    )
+                    .filter((s) =>
+                      s.name.toLowerCase().includes(searchFolders.trim().toLowerCase())
+                    )
+                    .map((s) => {
+                      const isActive = activeFolderId === s.id;
+                      const selectedInFolder = selectedGenerationCountBySetId[s.id] ?? 0;
+                      return (
+                        <div
+                          key={s.id}
+                          className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 ${
+                            isActive ? 'bg-muted' : 'hover:bg-muted/50'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setActiveFolderId(s.id)}
+                            className="min-w-0 text-left flex-1"
+                            title="Open folder"
+                          >
+                            <div className="font-medium truncate">
+                              {s.name}
+                              {s.isDefault ? ' (Default)' : ''}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {itemsBySetId[s.id]?.length ?? 0} item(s)
+                              {selectedInFolder > 0 ? ` · ${selectedInFolder} selected` : ''}
+                            </div>
+                          </button>
+
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button size="sm" variant="outline" className="h-8 px-2">
+                                ⋯
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => mockSyncFolder(s.id)}
+                                disabled={
+                                  isGenerating ||
+                                  !hasShopifyLink ||
+                                  (selectedGenerationCountBySetId[s.id] ?? 0) === 0
+                                }
+                              >
+                                Sync folder
+                              </DropdownMenuItem>
+
+                              {!s.isDefault ? (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setRenameSetId(s.id);
+                                      setRenameSetName(s.name);
+                                    }}
+                                  >
+                                    Rename folder
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    variant="destructive"
+                                    onClick={() => setDeleteId({ kind: 'set', id: s.id })}
+                                  >
+                                    Delete folder
+                                  </DropdownMenuItem>
+                                </>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
-                      </div>
-                      <div className="text-sm text-muted-foreground">{formatWhen(g.createdAt)}</div>
-                    </div>
-                  ))}
+                      );
+                    })}
+
+                  {sets.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No folders yet.
+                    </p>
+                  ) : null}
+                </div>
               </div>
-            )}
+
+              {/* Right pane: active folder contents */}
+              <div className="lg:col-span-8 rounded-md border p-3 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">
+                      {activeFolderId ? sets.find((s) => s.id === activeFolderId)?.name ?? 'Folder' : 'Folder'}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {activeFolderId ? `${selectedGenerationCountInActiveFolder} selected in this folder` : 'Select a folder to view items'}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (!activeFolderId) return;
+                        mockSyncFolder(activeFolderId);
+                      }}
+                      disabled={!activeFolderId || isGenerating || !hasShopifyLink || selectedGenerationCountInActiveFolder === 0}
+                      title={hasShopifyLink ? undefined : 'Link Shopify to sync'}
+                    >
+                      Sync
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setMoveOpen(true)}
+                      disabled={!activeFolderId || selectedGenerationCountInActiveFolder === 0}
+                    >
+                      Move
+                    </Button>
+                  </div>
+                </div>
+
+                <Input
+                  value={searchItems}
+                  onChange={(e) => setSearchItems(e.target.value)}
+                  placeholder="Search items in this folder…"
+                  disabled={!activeFolderId}
+                />
+
+                {!activeFolderId ? (
+                  <p className="text-sm text-muted-foreground">
+                    Select a folder on the left to view its items.
+                  </p>
+                ) : (itemsBySetId[activeFolderId] ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No items in this folder yet.
+                    {activeFolderId === defaultSetId ? ' Click Generate to create new outputs (they will land in Default).' : ' Use Move to organize items here.'}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {(itemsBySetId[activeFolderId] ?? [])
+                      .filter((i) => i.label.toLowerCase().includes(searchItems.trim().toLowerCase()))
+                      .slice()
+                      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+                      .map((i) => (
+                        <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditInstructions('');
+                              setLightbox({ kind: 'setItem', id: i.id, setId: i.setId });
+                            }}
+                            className="flex items-center gap-3 min-w-0 text-left"
+                            title="Open"
+                          >
+                            <img src={i.url} alt="" className="h-10 w-10 rounded-md object-cover border" />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium truncate">{i.label}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {formatWhen(i.createdAt)} · {i.status}
+                              </div>
+                            </div>
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant={i.isSelected ? 'default' : 'outline'}
+                              onClick={() => toggleSetItemSelected(i.setId, i.id)}
+                            >
+                              {i.isSelected ? '✓' : 'Select'}
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="sm" variant="outline" className="h-8 px-2">
+                                  ⋯
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setDetails({ setId: i.setId, itemId: i.id });
+                                  }}
+                                >
+                                  View details
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onSelect={() =>
+                                    (() => {
+                                      setDeleteId({ kind: 'setItem', id: i.id, setId: i.setId });
+                                    })()
+                                  }
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -407,7 +791,7 @@ export default function VariantAssetsPage() {
       <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Generate new assets</DialogTitle>
+            <DialogTitle>Generate new outputs (into default folder)</DialogTitle>
           </DialogHeader>
 
           <FieldGroup>
@@ -443,11 +827,77 @@ export default function VariantAssetsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* View details dialog */}
+      <Dialog
+        open={details !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetails(null);
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Generation details</DialogTitle>
+          </DialogHeader>
+
+          {!detailsItem ? (
+            <div className="text-sm text-muted-foreground">Item not found.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-md border overflow-hidden">
+                <img src={detailsItem.url} alt="" className="w-full h-full object-cover" />
+              </div>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">{detailsItem.label}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Folder: {detailsFolder?.name ?? '—'}
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <Badge variant={detailsItem.status === 'ready' ? 'secondary' : 'outline'}>
+                      {detailsItem.status}
+                    </Badge>
+                    <Badge variant="outline">{formatWhen(detailsItem.createdAt)}</Badge>
+                  </div>
+                </div>
+
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel>Prompt</FieldLabel>
+                    <Textarea
+                      value={detailsItem.prompt}
+                      readOnly
+                      className="min-h-[160px] resize-none"
+                    />
+                    <FieldDescription>
+                      This is mock data for now; later this will come from stored generation metadata.
+                    </FieldDescription>
+                  </Field>
+                </FieldGroup>
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      await copyToClipboard(detailsItem.prompt);
+                    }}
+                  >
+                    Copy prompt
+                  </Button>
+                  <Button variant="outline" onClick={() => setDetails(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Lightbox + edit instructions */}
       <Dialog
-        open={lightboxId !== null}
+        open={lightbox !== null}
         onOpenChange={(open) => {
-          if (!open) setLightboxId(null);
+          if (!open) setLightbox(null);
         }}
       >
         <DialogContent className="max-w-3xl">
@@ -456,12 +906,21 @@ export default function VariantAssetsPage() {
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-md border overflow-hidden">
-              {lightboxAsset ? (
+              {lightboxSetItem ? (
+                <img src={lightboxSetItem.url} alt="" className="w-full h-full object-cover" />
+              ) : lightboxAsset ? (
                 <img src={lightboxAsset.url} alt="" className="w-full h-full object-cover" />
               ) : null}
               <div className="p-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  {lightboxAsset ? (
+                  {lightboxSetItem ? (
+                    <>
+                      <Badge variant={lightboxSetItem.status === 'ready' ? 'secondary' : 'outline'}>
+                        {lightboxSetItem.status}
+                      </Badge>
+                      <Badge variant="outline">folder</Badge>
+                    </>
+                  ) : lightboxAsset ? (
                     <>
                       <Badge variant={lightboxAsset.status === 'ready' ? 'secondary' : 'outline'}>
                         {lightboxAsset.status}
@@ -473,23 +932,39 @@ export default function VariantAssetsPage() {
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    variant={lightboxAsset?.isSelected ? 'default' : 'outline'}
+                    variant={
+                      lightboxSetItem?.isSelected || lightboxAsset?.isSelected
+                        ? 'default'
+                        : 'outline'
+                    }
                     onClick={() => {
-                      if (!lightboxAsset) return;
-                      toggleSelected(lightboxAsset.id);
+                      if (lightboxSetItem) {
+                        toggleSetItemSelected(lightboxSetItem.setId, lightboxSetItem.id);
+                        return;
+                      }
+                      if (lightboxAsset) {
+                        toggleSelected(lightboxAsset.id);
+                      }
                     }}
-                    disabled={!lightboxAsset}
+                    disabled={!lightboxSetItem && !lightboxAsset}
                   >
-                    {lightboxAsset?.isSelected ? 'Selected' : 'Select'}
+                    {lightboxSetItem?.isSelected || lightboxAsset?.isSelected
+                      ? 'Selected'
+                      : 'Select'}
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={async () => {
-                      if (!lightboxAsset) return;
-                      await copyToClipboard(lightboxAsset.url);
+                      if (lightboxSetItem) {
+                        await copyToClipboard(lightboxSetItem.url);
+                        return;
+                      }
+                      if (lightboxAsset) {
+                        await copyToClipboard(lightboxAsset.url);
+                      }
                     }}
-                    disabled={!lightboxAsset}
+                    disabled={!lightboxSetItem && !lightboxAsset}
                   >
                     Copy URL
                   </Button>
@@ -497,10 +972,15 @@ export default function VariantAssetsPage() {
                     size="sm"
                     variant="destructive"
                     onClick={() => {
-                      if (!lightboxAsset) return;
-                      setDeleteId(lightboxAsset.id);
+                      if (lightboxSetItem) {
+                        setDeleteId({ kind: 'setItem', id: lightboxSetItem.id, setId: lightboxSetItem.setId });
+                        return;
+                      }
+                      if (lightboxAsset) {
+                        setDeleteId({ kind: 'asset', id: lightboxAsset.id });
+                      }
                     }}
-                    disabled={!lightboxAsset}
+                    disabled={!lightboxSetItem && !lightboxAsset}
                   >
                     Delete
                   </Button>
@@ -526,7 +1006,7 @@ export default function VariantAssetsPage() {
               </FieldGroup>
 
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setLightboxId(null)} disabled={isGenerating}>
+                <Button variant="outline" onClick={() => setLightbox(null)} disabled={isGenerating}>
                   Close
                 </Button>
                 <Button
@@ -543,19 +1023,43 @@ export default function VariantAssetsPage() {
       </Dialog>
 
       {/* Delete confirm */}
-      <AlertDialog open={deleteId !== null} onOpenChange={(open) => !open && setDeleteId(null)}>
+      <AlertDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteId(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete asset?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteId?.kind === 'set'
+                ? 'Delete folder?'
+                : deleteId?.kind === 'setItem'
+                  ? 'Remove item?'
+                  : 'Delete asset?'}
+            </AlertDialogTitle>
           </AlertDialogHeader>
           <div className="text-sm text-muted-foreground">
-            {deleteAsset ? 'This will remove the selected asset from the variant.' : 'This will remove the asset.'}
+            {deleteId?.kind === 'set' && deleteSet
+              ? `This will delete the folder “${deleteSet.name}”. Items will not be deleted.`
+              : deleteId?.kind === 'setItem' && deleteSetItem
+                ? 'This will remove the item from the folder.'
+                : deleteAsset
+                  ? 'This will remove the selected asset from current assets.'
+                  : 'This will remove the item.'}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteId(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (deleteId) removeAsset(deleteId);
+                if (!deleteId) return;
+                if (deleteId.kind === 'asset') removeAsset(deleteId.id);
+                if (deleteId.kind === 'setItem') {
+                  const sid = deleteId.setId;
+                  if (!sid) return;
+                  removeSetItem(sid, deleteId.id);
+                }
+                if (deleteId.kind === 'set') deleteSetById(deleteId.id);
               }}
             >
               Delete
@@ -563,6 +1067,118 @@ export default function VariantAssetsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Move selected dialog */}
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move selected items</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground">
+            Choose a destination folder. Moving to <span className="font-medium text-foreground">Default</span> puts items back at the root.
+          </div>
+          <div className="space-y-2">
+            {sets
+              .slice()
+              .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || b.updatedAt.localeCompare(a.updatedAt))
+              .map((s) => (
+                <Button
+                  key={s.id}
+                  variant="outline"
+                  className="w-full justify-between"
+                  onClick={() => {
+                    if (!activeFolderId) return;
+                    moveSelectedItemsFromFolder(activeFolderId, s.id);
+                  }}
+                  disabled={!activeFolderId || selectedGenerationCountInActiveFolder === 0 || s.id === activeFolderId}
+                >
+                  <span className="truncate">{s.name}{s.isDefault ? ' (Default)' : ''}</span>
+                  <span className="text-xs text-muted-foreground">{itemsBySetId[s.id]?.length ?? 0}</span>
+                </Button>
+              ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New set dialog */}
+      <Dialog open={newSetOpen} onOpenChange={setNewSetOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New folder</DialogTitle>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="new-set-name">Name</FieldLabel>
+              <Input
+                id="new-set-name"
+                value={renameSetName}
+                onChange={(e) => setRenameSetName(e.target.value)}
+                placeholder="e.g. Homepage winners"
+              />
+              <FieldDescription>Folders help you group and sync the best outputs.</FieldDescription>
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewSetOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const name = renameSetName.trim();
+                if (!name) return;
+                createSet(name);
+                setRenameSetName('');
+                setNewSetOpen(false);
+              }}
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename set dialog */}
+      <Dialog
+        open={renameSetId !== null}
+        onOpenChange={(open) => !open && setRenameSetId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename folder</DialogTitle>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="rename-set-name">Name</FieldLabel>
+              <Input
+                id="rename-set-name"
+                value={renameSetName}
+                onChange={(e) => setRenameSetName(e.target.value)}
+              />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameSetId(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!renameSetId) return;
+                const name = renameSetName.trim();
+                if (!name) return;
+                renameSet(renameSetId, name);
+                setRenameSetId(null);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
