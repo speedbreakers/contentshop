@@ -87,6 +87,8 @@ export const products = pgTable(
 
     title: varchar('title', { length: 255 }).notNull(),
     status: varchar('status', { length: 20 }).notNull().default('draft'),
+    // Category drives generation schema/UI. Stored on product only (variants do not override).
+    category: varchar('category', { length: 30 }).notNull().default('apparel'),
     vendor: varchar('vendor', { length: 255 }),
     productType: varchar('product_type', { length: 255 }),
     handle: varchar('handle', { length: 255 }),
@@ -193,6 +195,70 @@ export const variantOptionValues = pgTable(
     uniquePerVariantOption: uniqueIndex(
       'variant_option_values_variant_option_unique'
     ).on(t.variantId, t.productOptionId),
+  })
+);
+
+/**
+ * Variant Generations + Images
+ * - A generation represents one request with structured inputs.
+ * - It produces N output images (number_of_variations).
+ * - Output images are stored in variant_images and can be added to folders via set_items.
+ */
+
+export const variantGenerations = pgTable(
+  'variant_generations',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    variantId: integer('variant_id')
+      .notNull()
+      .references(() => productVariants.id),
+
+    schemaKey: varchar('schema_key', { length: 50 }).notNull(), // e.g. apparel.v1
+    input: jsonb('input').notNull(),
+    numberOfVariations: integer('number_of_variations').notNull().default(1),
+
+    provider: varchar('provider', { length: 30 }).notNull().default('mock'),
+    status: varchar('status', { length: 20 }).notNull().default('generating'), // generating|ready|failed
+    errorMessage: text('error_message'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('variant_generations_team_id_idx').on(t.teamId),
+    variantIdx: index('variant_generations_variant_id_idx').on(t.variantId),
+    statusIdx: index('variant_generations_status_idx').on(t.status),
+  })
+);
+
+export const variantImages = pgTable(
+  'variant_images',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    variantId: integer('variant_id')
+      .notNull()
+      .references(() => productVariants.id),
+
+    generationId: integer('generation_id').references(() => variantGenerations.id),
+
+    status: varchar('status', { length: 20 }).notNull().default('ready'), // generating|ready|failed
+    url: text('url').notNull(),
+    prompt: text('prompt'),
+    schemaKey: varchar('schema_key', { length: 50 }),
+    input: jsonb('input'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('variant_images_team_id_idx').on(t.teamId),
+    variantIdx: index('variant_images_variant_id_idx').on(t.variantId),
+    generationIdx: index('variant_images_generation_id_idx').on(t.generationId),
   })
 );
 
@@ -392,6 +458,33 @@ export const variantOptionValuesRelations = relations(
   })
 );
 
+export const variantGenerationsRelations = relations(variantGenerations, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [variantGenerations.teamId],
+    references: [teams.id],
+  }),
+  variant: one(productVariants, {
+    fields: [variantGenerations.variantId],
+    references: [productVariants.id],
+  }),
+  images: many(variantImages),
+}));
+
+export const variantImagesRelations = relations(variantImages, ({ one }) => ({
+  team: one(teams, {
+    fields: [variantImages.teamId],
+    references: [teams.id],
+  }),
+  variant: one(productVariants, {
+    fields: [variantImages.variantId],
+    references: [productVariants.id],
+  }),
+  generation: one(variantGenerations, {
+    fields: [variantImages.generationId],
+    references: [variantGenerations.id],
+  }),
+}));
+
 export const setsRelations = relations(sets, ({ one, many }) => ({
   team: one(teams, {
     fields: [sets.teamId],
@@ -453,6 +546,10 @@ export type ProductOption = typeof productOptions.$inferSelect;
 export type NewProductOption = typeof productOptions.$inferInsert;
 export type VariantOptionValue = typeof variantOptionValues.$inferSelect;
 export type NewVariantOptionValue = typeof variantOptionValues.$inferInsert;
+export type VariantGeneration = typeof variantGenerations.$inferSelect;
+export type NewVariantGeneration = typeof variantGenerations.$inferInsert;
+export type VariantImage = typeof variantImages.$inferSelect;
+export type NewVariantImage = typeof variantImages.$inferInsert;
 export type Set = typeof sets.$inferSelect;
 export type NewSet = typeof sets.$inferInsert;
 export type SetItem = typeof setItems.$inferSelect;

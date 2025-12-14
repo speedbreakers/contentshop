@@ -34,6 +34,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,6 +61,7 @@ export default function ProductsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [newCategory, setNewCategory] = useState<'apparel' | 'electronics' | 'jewellery'>('apparel');
   const [newVendor, setNewVendor] = useState('');
   const [newProductType, setNewProductType] = useState('');
   const [newHandle, setNewHandle] = useState('');
@@ -89,6 +91,7 @@ export default function ProductsPage() {
       id: productId,
       title,
       status: 'draft',
+      category: newCategory,
       vendor: newVendor || null,
       productType: newProductType || null,
       handle: newHandle || null,
@@ -113,6 +116,7 @@ export default function ProductsPage() {
     setItems((prev) => [product, ...prev]);
     setCreateOpen(false);
     setNewTitle('');
+    setNewCategory('apparel');
     setNewVendor('');
     setNewProductType('');
     setNewHandle('');
@@ -176,6 +180,30 @@ export default function ProductsPage() {
                   placeholder="Classic Cotton T‑Shirt"
                   required
                 />
+              </Field>
+              <Field>
+                <FieldLabel>Category</FieldLabel>
+                <RadioGroup
+                  value={newCategory}
+                  onValueChange={(v) => setNewCategory(v as any)}
+                  className="grid grid-cols-1 gap-2"
+                >
+                  <label className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/40 cursor-pointer">
+                    <RadioGroupItem value="apparel" />
+                    <span className="text-sm">Apparel</span>
+                  </label>
+                  <label className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/40 cursor-pointer">
+                    <RadioGroupItem value="electronics" />
+                    <span className="text-sm">Electronics</span>
+                  </label>
+                  <label className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/40 cursor-pointer">
+                    <RadioGroupItem value="jewellery" />
+                    <span className="text-sm">Jewellery</span>
+                  </label>
+                </RadioGroup>
+                <FieldDescription>
+                  Category controls the generation form shown on variants.
+                </FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="create-product-vendor">Vendor</FieldLabel>

@@ -81,6 +81,9 @@ export default function ProductDetailPage() {
               >
                 {product.status}
               </Badge>
+              <Badge variant="outline" className="capitalize">
+                {product.category}
+              </Badge>
               {product.shopifyProductGid ? (
                 <Badge>Shopify linked</Badge>
               ) : (

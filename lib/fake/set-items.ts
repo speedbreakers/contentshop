@@ -8,6 +8,8 @@ export type FakeSetItem = {
   status: FakeSetItemStatus;
   url: string;
   prompt: string;
+  schemaKey?: string;
+  input?: any;
   isSelected: boolean;
 };
 

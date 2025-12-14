@@ -30,6 +30,7 @@ export async function GET(
 
 const patchSchema = z.object({
   title: z.string().min(1).optional(),
+  category: z.enum(['apparel', 'electronics', 'jewellery']).optional(),
   vendor: z.string().optional().nullable(),
   productType: z.string().optional().nullable(),
   handle: z.string().optional().nullable(),

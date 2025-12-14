@@ -93,6 +93,7 @@ export default function VariantAssetsPage() {
     () => product?.variants.find((v) => v.id === variantId) ?? null,
     [product, variantId]
   );
+  const productCategory = product?.category ?? 'apparel';
 
   const seed = useMemo(() => getMockVariantAssets(variantId), [variantId]);
 
@@ -128,6 +129,23 @@ export default function VariantAssetsPage() {
   const [deleteId, setDeleteId] = useState<{ kind: 'asset' | 'set' | 'setItem'; id: number; setId?: number } | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const [details, setDetails] = useState<{ setId: number; itemId: number } | null>(null);
+
+  // Category-driven generation form state (mock for now)
+  const [genNumberOfVariations, setGenNumberOfVariations] = useState(1);
+  const [genOutputFormat, setGenOutputFormat] = useState<'png' | 'jpg' | 'webp'>('png');
+  const [genAspectRatio, setGenAspectRatio] = useState<'1:1' | '4:5' | '3:4' | '16:9'>('1:1');
+  const [genCustomInstructions, setGenCustomInstructions] = useState('');
+  const [genModelImageUrl, setGenModelImageUrl] = useState('');
+  const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
+
+  // Apparel inputs
+  const [genGarmentFront, setGenGarmentFront] = useState('');
+  const [genGarmentBack, setGenGarmentBack] = useState('');
+  const [genGarmentLeft, setGenGarmentLeft] = useState('');
+  const [genGarmentRight, setGenGarmentRight] = useState('');
+
+  // Non-apparel inputs (one URL per line)
+  const [genProductImagesText, setGenProductImagesText] = useState('');
 
   const lightboxAsset =
     lightbox?.kind === 'asset' ? assets.find((a) => a.id === lightbox.id) ?? null : null;
@@ -243,31 +261,76 @@ export default function VariantAssetsPage() {
       setSyncMessage('Default folder is missing (unexpected).');
       return;
     }
+    const n = Math.max(1, Math.min(10, Math.floor(genNumberOfVariations || 1)));
+    const schemaKey = productCategory === 'apparel' ? 'apparel.v1' : 'non_apparel.v1';
+    const nonApparelImages = genProductImagesText
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (productCategory === 'apparel' && !genGarmentFront.trim()) {
+      setSyncMessage('Garment front image URL is required for apparel generation.');
+      return;
+    }
+    if (productCategory !== 'apparel' && nonApparelImages.length === 0) {
+      setSyncMessage('At least one product image URL is required.');
+      return;
+    }
+
+    const input =
+      productCategory === 'apparel'
+        ? {
+            garment_front: genGarmentFront.trim(),
+            garment_back: genGarmentBack.trim(),
+            garment_left: genGarmentLeft.trim(),
+            garment_right: genGarmentRight.trim(),
+            model_image: genModelImageUrl.trim(),
+            background_image: genBackgroundImageUrl.trim(),
+            number_of_variations: n,
+            output_format: genOutputFormat,
+            aspect_ratio: genAspectRatio,
+            custom_instructions: genCustomInstructions.trim(),
+          }
+        : {
+            product_images: nonApparelImages,
+            model_image: genModelImageUrl.trim(),
+            background_image: genBackgroundImageUrl.trim(),
+            number_of_variations: n,
+            output_format: genOutputFormat,
+            aspect_ratio: genAspectRatio,
+            custom_instructions: genCustomInstructions.trim(),
+          };
+
     setIsGenerating(true);
-    const id = Math.floor(Date.now() / 1000);
     const now = new Date().toISOString();
-    const draft: FakeSetItem = {
-      id,
-      setId: defaultSetId,
-      createdAt: now,
-      label,
-      status: 'generating',
-      url: placeholderUrl('Generating…', id, 640),
-      prompt: editInstructions.trim() || 'Generate a clean, high-quality product image.',
-      isSelected: false,
-    };
+    const baseId = Math.floor(Date.now() / 1000);
+    const drafts: FakeSetItem[] = Array.from({ length: n }).map((_, idx) => {
+      const id = baseId + idx;
+      return {
+        id,
+        setId: defaultSetId,
+        createdAt: now,
+        label: `${label} ${idx + 1}`,
+        status: 'generating',
+        url: placeholderUrl('Generating…', id, 640),
+        prompt: genCustomInstructions.trim() || 'Generate a clean, high-quality product image.',
+        schemaKey,
+        input,
+        isSelected: false,
+      };
+    });
 
     setItemsBySetId((prev) => ({
       ...prev,
-      [defaultSetId]: [draft, ...(prev[defaultSetId] ?? [])],
+      [defaultSetId]: [...drafts, ...(prev[defaultSetId] ?? [])],
     }));
 
     setTimeout(() => {
       setItemsBySetId((prev) => ({
         ...prev,
         [defaultSetId]: (prev[defaultSetId] ?? []).map((i) =>
-          i.id === id
-            ? { ...i, status: 'ready', url: placeholderUrl(label, id, 640) }
+          i.id >= baseId && i.id < baseId + n
+            ? { ...i, status: 'ready', url: placeholderUrl(i.label, i.id, 640) }
             : i
         ),
       }));
@@ -865,12 +928,134 @@ export default function VariantAssetsPage() {
           </DialogHeader>
 
           <FieldGroup>
+            <div className="text-sm text-muted-foreground">
+              Category: <span className="font-medium text-foreground capitalize">{productCategory}</span>
+            </div>
+
+            {productCategory === 'apparel' ? (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="gen-garment-front">Garment front URL *</FieldLabel>
+                  <Input
+                    id="gen-garment-front"
+                    value={genGarmentFront}
+                    onChange={(e) => setGenGarmentFront(e.target.value)}
+                    placeholder="https://…"
+                    required
+                  />
+                </Field>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Field>
+                    <FieldLabel htmlFor="gen-garment-back">Garment back URL</FieldLabel>
+                    <Input
+                      id="gen-garment-back"
+                      value={genGarmentBack}
+                      onChange={(e) => setGenGarmentBack(e.target.value)}
+                      placeholder="https://…"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="gen-garment-left">Garment left URL</FieldLabel>
+                    <Input
+                      id="gen-garment-left"
+                      value={genGarmentLeft}
+                      onChange={(e) => setGenGarmentLeft(e.target.value)}
+                      placeholder="https://…"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="gen-garment-right">Garment right URL</FieldLabel>
+                    <Input
+                      id="gen-garment-right"
+                      value={genGarmentRight}
+                      onChange={(e) => setGenGarmentRight(e.target.value)}
+                      placeholder="https://…"
+                    />
+                  </Field>
+                </div>
+              </>
+            ) : (
+              <Field>
+                <FieldLabel htmlFor="gen-product-images">Product image URLs (one per line) *</FieldLabel>
+                <Textarea
+                  id="gen-product-images"
+                  value={genProductImagesText}
+                  onChange={(e) => setGenProductImagesText(e.target.value)}
+                  placeholder={`https://…\nhttps://…`}
+                  className="min-h-[120px] resize-none"
+                />
+              </Field>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field>
+                <FieldLabel htmlFor="gen-model-url">Model image URL</FieldLabel>
+                <Input
+                  id="gen-model-url"
+                  value={genModelImageUrl}
+                  onChange={(e) => setGenModelImageUrl(e.target.value)}
+                  placeholder="https://…"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="gen-bg-url">Background image URL</FieldLabel>
+                <Input
+                  id="gen-bg-url"
+                  value={genBackgroundImageUrl}
+                  onChange={(e) => setGenBackgroundImageUrl(e.target.value)}
+                  placeholder="https://…"
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field>
+                <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>
+                <Input
+                  id="gen-variations"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={String(genNumberOfVariations)}
+                  onChange={(e) => setGenNumberOfVariations(Number(e.target.value))}
+                />
+                <FieldDescription>Max 10.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="gen-format">Output format</FieldLabel>
+                <select
+                  id="gen-format"
+                  value={genOutputFormat}
+                  onChange={(e) => setGenOutputFormat(e.target.value as any)}
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="png">png</option>
+                  <option value="jpg">jpg</option>
+                  <option value="webp">webp</option>
+                </select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
+                <select
+                  id="gen-ratio"
+                  value={genAspectRatio}
+                  onChange={(e) => setGenAspectRatio(e.target.value as any)}
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="1:1">1:1</option>
+                  <option value="4:5">4:5</option>
+                  <option value="3:4">3:4</option>
+                  <option value="16:9">16:9</option>
+                </select>
+              </Field>
+            </div>
+
             <Field>
-              <FieldLabel htmlFor="gen-notes">Notes (optional)</FieldLabel>
+              <FieldLabel htmlFor="gen-instructions">Custom instructions (optional)</FieldLabel>
               <Textarea
-                id="gen-notes"
-                value={editInstructions}
-                onChange={(e) => setEditInstructions(e.target.value)}
+                id="gen-instructions"
+                value={genCustomInstructions}
+                onChange={(e) => setGenCustomInstructions(e.target.value)}
                 placeholder="e.g., brighter background, more premium lighting, centered framing"
                 className="min-h-[120px] resize-none"
               />
@@ -943,6 +1128,27 @@ export default function VariantAssetsPage() {
                     </FieldDescription>
                   </Field>
                 </FieldGroup>
+
+                {detailsItem.schemaKey || detailsItem.input ? (
+                  <FieldGroup>
+                    {detailsItem.schemaKey ? (
+                      <Field>
+                        <FieldLabel>Schema</FieldLabel>
+                        <Input value={detailsItem.schemaKey} readOnly />
+                      </Field>
+                    ) : null}
+                    {detailsItem.input ? (
+                      <Field>
+                        <FieldLabel>Input</FieldLabel>
+                        <Textarea
+                          value={JSON.stringify(detailsItem.input, null, 2)}
+                          readOnly
+                          className="min-h-[180px] resize-none font-mono text-xs"
+                        />
+                      </Field>
+                    ) : null}
+                  </FieldGroup>
+                ) : null}
 
                 <div className="flex justify-end gap-2">
                   <Button

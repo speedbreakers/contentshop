@@ -11,6 +11,7 @@ import {
 export type CreateProductInput = {
   teamId: number;
   title: string;
+  category: string;
   vendor?: string | null;
   productType?: string | null;
   handle?: string | null;
@@ -26,6 +27,7 @@ export async function createProductWithDefaultVariant(input: CreateProductInput)
       .values({
         teamId: input.teamId,
         title: input.title,
+        category: input.category,
         vendor: input.vendor ?? null,
         productType: input.productType ?? null,
         handle: input.handle ?? null,
@@ -125,6 +127,7 @@ export async function getProductById(teamId: number, productId: number) {
 
 export type UpdateProductInput = {
   title?: string;
+  category?: string;
   vendor?: string | null;
   productType?: string | null;
   handle?: string | null;

@@ -14,6 +14,7 @@ export async function GET() {
 
 const createProductSchema = z.object({
   title: z.string().min(1),
+  category: z.enum(['apparel', 'electronics', 'jewellery']),
   vendor: z.string().optional().nullable(),
   productType: z.string().optional().nullable(),
   handle: z.string().optional().nullable(),

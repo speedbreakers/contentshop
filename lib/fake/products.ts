@@ -1,5 +1,7 @@
 export type FakeProductStatus = 'draft' | 'active' | 'archived';
 
+export type FakeProductCategory = 'apparel' | 'electronics' | 'jewellery';
+
 export type FakeProductOption = {
   id: number;
   name: string;
@@ -25,6 +27,7 @@ export type FakeProduct = {
   id: number;
   title: string;
   status: FakeProductStatus;
+  category: FakeProductCategory;
   vendor?: string | null;
   productType?: string | null;
   handle?: string | null;
@@ -45,6 +48,7 @@ export const fakeProducts: FakeProduct[] = [
     id: 101,
     title: 'Classic Cotton T‑Shirt',
     status: 'active',
+    category: 'apparel',
     vendor: 'ACME',
     productType: 'Apparel',
     handle: 'classic-cotton-tshirt',
@@ -96,6 +100,7 @@ export const fakeProducts: FakeProduct[] = [
     id: 102,
     title: 'Minimalist Hoodie',
     status: 'draft',
+    category: 'apparel',
     vendor: 'ACME',
     productType: 'Apparel',
     handle: 'minimalist-hoodie',
@@ -129,6 +134,7 @@ export const fakeProducts: FakeProduct[] = [
     id: 103,
     title: 'Ceramic Mug',
     status: 'active',
+    category: 'electronics',
     vendor: 'ACME Home',
     productType: 'Home Goods',
     handle: 'ceramic-mug',
@@ -153,6 +159,7 @@ export const fakeProducts: FakeProduct[] = [
     id: 104,
     title: 'Leather Wallet',
     status: 'archived',
+    category: 'jewellery',
     vendor: 'ACME',
     productType: 'Accessories',
     handle: 'leather-wallet',
@@ -186,6 +193,7 @@ export const fakeProducts: FakeProduct[] = [
     id: 105,
     title: 'Running Shoes',
     status: 'active',
+    category: 'apparel',
     vendor: 'ACME Sport',
     productType: 'Footwear',
     handle: 'running-shoes',
