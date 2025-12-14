@@ -50,6 +50,9 @@ export function VariantsTable(props: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Track variant count from parent to trigger reload when new variants are added
+  const parentVariantCount = props.product.variants?.length ?? 0;
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -88,7 +91,7 @@ export function VariantsTable(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.product.id]);
+  }, [props.product.id, parentVariantCount]);
 
   const [linkVariantId, setLinkVariantId] = useState<number | null>(null);
   const [deleteVariantId, setDeleteVariantId] = useState<number | null>(null);

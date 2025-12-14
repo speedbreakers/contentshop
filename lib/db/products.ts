@@ -16,6 +16,7 @@ export type CreateProductInput = {
   productType?: string | null;
   handle?: string | null;
   tags?: string | null;
+  imageUrl?: string | null;
   shopifyProductGid?: string | null;
   options?: Array<{ name: string; position: number }>;
 };
@@ -32,6 +33,7 @@ export async function createProductWithDefaultVariant(input: CreateProductInput)
         productType: input.productType ?? null,
         handle: input.handle ?? null,
         tags: input.tags ?? null,
+        imageUrl: input.imageUrl ?? null,
         shopifyProductGid: input.shopifyProductGid ?? null,
       })
       .returning();
@@ -144,6 +146,7 @@ export type UpdateProductInput = {
   productType?: string | null;
   handle?: string | null;
   tags?: string | null;
+  imageUrl?: string | null;
   status?: string;
   shopifyProductGid?: string | null;
 };

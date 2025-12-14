@@ -1,0 +1,6 @@
+- add product modal
+- shopify link
+- garment / non-garment workflow
+- description generation
+- invite team members
+- credits system

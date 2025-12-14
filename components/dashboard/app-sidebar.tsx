@@ -71,9 +71,9 @@ function UserFooter() {
   const initials =
     email
       ? email
-          .split(' ')
-          .map((n) => n[0])
-          .join('')
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
       : 'U';
 
   return (
@@ -158,18 +158,18 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isTeam} tooltip="Team">
-                  <Link href="/dashboard">
-                    <Users />
-                    <span>Team</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isGeneral} tooltip="General">
                   <Link href="/dashboard/general">
                     <Settings />
                     <span>General</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isTeam} tooltip="Team">
+                  <Link href="/dashboard">
+                    <Users />
+                    <span>Team</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

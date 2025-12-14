@@ -124,6 +124,7 @@ export const products = pgTable(
     productType: varchar('product_type', { length: 255 }),
     handle: varchar('handle', { length: 255 }),
     tags: text('tags'),
+    imageUrl: text('image_url'),
 
     // Manual Shopify linking (future: include store connection)
     shopifyProductGid: text('shopify_product_gid'),

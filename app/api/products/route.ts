@@ -23,6 +23,7 @@ const createProductSchema = z.object({
   productType: z.string().optional().nullable(),
   handle: z.string().optional().nullable(),
   tags: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
   shopifyProductGid: z.string().optional().nullable(),
   options: z
     .array(

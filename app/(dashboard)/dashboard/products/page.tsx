@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,13 @@ import {
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,7 +52,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { EllipsisVerticalIcon } from 'lucide-react';
+import { EllipsisVerticalIcon, ImageIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react';
 
 function statusBadgeVariant(status: string) {
   if (status === 'active') return 'default';
@@ -63,6 +69,7 @@ type ApiProduct = {
   productType: string | null;
   handle: string | null;
   tags: string | null;
+  imageUrl: string | null;
   shopifyProductGid: string | null;
   defaultVariantId: number | null;
   updatedAt: string;
@@ -79,10 +86,10 @@ export default function ProductsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState<'apparel' | 'electronics' | 'jewellery'>('apparel');
-  const [newVendor, setNewVendor] = useState('');
-  const [newProductType, setNewProductType] = useState('');
-  const [newHandle, setNewHandle] = useState('');
   const [newTags, setNewTags] = useState('');
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [linkProductId, setLinkProductId] = useState<number | null>(null);
   const [linkGid, setLinkGid] = useState('');
@@ -125,6 +132,28 @@ export default function ProductsPage() {
     });
   }, [items, query]);
 
+  async function uploadProductImage(file: File) {
+    const form = new FormData();
+    form.append('kind', 'product');
+    form.append('file', file);
+
+    setUploading(true);
+    try {
+      const res = await fetch('/api/uploads', { method: 'POST', body: form });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? 'Upload failed');
+
+      const url = data?.file?.url;
+      if (typeof url === 'string' && url.length > 0) {
+        setNewImageUrl(url);
+      }
+    } catch (e: any) {
+      setLoadError(e?.message ?? 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function createProduct() {
     const title = newTitle.trim();
     if (!title) return;
@@ -134,10 +163,8 @@ export default function ProductsPage() {
       body: JSON.stringify({
         title,
         category: newCategory,
-        vendor: newVendor.trim() || null,
-        productType: newProductType.trim() || null,
-        handle: newHandle.trim() || null,
         tags: newTags.trim() || null,
+        imageUrl: newImageUrl || null,
         shopifyProductGid: null,
       }),
     });
@@ -160,10 +187,8 @@ export default function ProductsPage() {
       setCreateOpen(false);
       setNewTitle('');
       setNewCategory('apparel');
-      setNewVendor('');
-      setNewProductType('');
-      setNewHandle('');
       setNewTags('');
+      setNewImageUrl('');
     }
   }
 
@@ -220,91 +245,129 @@ export default function ProductsPage() {
               New product
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Create product</DialogTitle>
             </DialogHeader>
 
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="create-product-title">Title</FieldLabel>
-                <Input
-                  id="create-product-title"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="Classic Cotton T‑Shirt"
-                  required
-                />
-              </Field>
-              <Field>
-                <FieldLabel>Category</FieldLabel>
-                <RadioGroup
-                  value={newCategory}
-                  onValueChange={(v) => setNewCategory(v as any)}
-                  className="grid grid-cols-1 gap-2"
-                >
-                  <label className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/40 cursor-pointer">
-                    <RadioGroupItem value="apparel" />
-                    <span className="text-sm">Apparel</span>
-                  </label>
-                  <label className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/40 cursor-pointer">
-                    <RadioGroupItem value="electronics" />
-                    <span className="text-sm">Electronics</span>
-                  </label>
-                  <label className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/40 cursor-pointer">
-                    <RadioGroupItem value="jewellery" />
-                    <span className="text-sm">Jewellery</span>
-                  </label>
-                </RadioGroup>
-                <FieldDescription>
-                  Category controls the generation form shown on variants.
-                </FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="create-product-vendor">Vendor</FieldLabel>
-                <Input
-                  id="create-product-vendor"
-                  value={newVendor}
-                  onChange={(e) => setNewVendor(e.target.value)}
-                  placeholder="ACME"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="create-product-type">Product type</FieldLabel>
-                <Input
-                  id="create-product-type"
-                  value={newProductType}
-                  onChange={(e) => setNewProductType(e.target.value)}
-                  placeholder="Apparel"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="create-product-handle">Handle</FieldLabel>
-                <Input
-                  id="create-product-handle"
-                  value={newHandle}
-                  onChange={(e) => setNewHandle(e.target.value)}
-                  placeholder="classic-cotton-tshirt"
-                />
-                <FieldDescription>SEO-friendly slug. Optional for now.</FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="create-product-tags">Tags</FieldLabel>
-                <Input
-                  id="create-product-tags"
-                  value={newTags}
-                  onChange={(e) => setNewTags(e.target.value)}
-                  placeholder="tshirt,cotton,basics"
-                />
-                <FieldDescription>Comma-separated. Optional.</FieldDescription>
-              </Field>
-            </FieldGroup>
+            <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-6">
+              {/* Left column: Product Image */}
+              <div>
+                <FieldLabel className="mb-2 block">Product Image</FieldLabel>
+                <div className="group relative aspect-square w-full max-w-[180px] rounded-lg border-2 border-dashed border-muted-foreground/25 overflow-hidden bg-muted/50 hover:border-muted-foreground/40 transition-colors">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      if (f) {
+                        uploadProductImage(f);
+                        e.currentTarget.value = '';
+                      }
+                    }}
+                  />
+                  {newImageUrl ? (
+                    <>
+                      <img
+                        src={newImageUrl}
+                        alt="Product preview"
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setNewImageUrl('')}
+                        className="absolute top-2 right-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                        aria-label="Remove image"
+                      >
+                        <XIcon className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/30 transition-colors"
+                        aria-label="Change image"
+                      />
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {uploading ? (
+                        <Loader2Icon className="h-8 w-8 animate-spin" />
+                      ) : (
+                        <>
+                          <div className="rounded-full bg-muted p-3">
+                            <PlusIcon className="h-5 w-5" />
+                          </div>
+                          <span className="text-xs font-medium">Add image</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Helps identify the product in listings
+                </p>
+              </div>
+
+              {/* Right column: Form fields */}
+              <FieldGroup className="gap-4">
+                <Field>
+                  <FieldLabel htmlFor="create-product-title">Title</FieldLabel>
+                  <Input
+                    id="create-product-title"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="Classic Cotton T‑Shirt"
+                    required
+                  />
+                </Field>
+
+                <Field>
+                  <FieldLabel>Category</FieldLabel>
+                  <Select
+                    value={newCategory}
+                    onValueChange={(v) => setNewCategory(v as 'apparel' | 'electronics' | 'jewellery')}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="apparel">Apparel</SelectItem>
+                      <SelectItem value="electronics">Electronics</SelectItem>
+                      <SelectItem value="jewellery">Jewellery</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>
+                    Category controls the generation form shown on variants.
+                  </FieldDescription>
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="create-product-tags">Tags</FieldLabel>
+                  <Input
+                    id="create-product-tags"
+                    value={newTags}
+                    onChange={(e) => setNewTags(e.target.value)}
+                    placeholder="tshirt, cotton, basics"
+                  />
+                  <FieldDescription>Comma-separated. Optional.</FieldDescription>
+                </Field>
+              </FieldGroup>
+            </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={() => setCreateOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={createProduct}>Create</Button>
+              <Button onClick={createProduct} disabled={!newTitle.trim()}>
+                Create
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -329,6 +392,7 @@ export default function ProductsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[60px]"></TableHead>
                 <TableHead>Product</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Variants</TableHead>
@@ -340,13 +404,13 @@ export default function ProductsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                  <TableCell colSpan={6} className="text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                  <TableCell colSpan={6} className="text-muted-foreground">
                     No products found.
                   </TableCell>
                 </TableRow>
@@ -366,9 +430,22 @@ export default function ProductsPage() {
                     }}
                   >
                     <TableCell>
+                      <div className="h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
+                        {p.imageUrl ? (
+                          <img
+                            src={p.imageUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
                       <div className="font-medium">{p.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {p.handle ?? '—'}
+                      <div className="text-xs text-muted-foreground capitalize">
+                        {p.category}
                       </div>
                     </TableCell>
                     <TableCell>
