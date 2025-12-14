@@ -52,6 +52,36 @@ async function copyToClipboard(text: string) {
   }
 }
 
+function safeFilename(input: string) {
+  const cleaned = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return cleaned || 'download';
+}
+
+async function downloadFromUrl(url: string, filename: string) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+    return true;
+  } catch {
+    // Fallback: open the URL (download attribute may be ignored cross-origin).
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return false;
+  }
+}
+
 export default function VariantAssetsPage() {
   const params = useParams<{ productId: string; variantId: string }>();
   const router = useRouter();
@@ -392,6 +422,32 @@ export default function VariantAssetsPage() {
     setMoveOpen(false);
   }
 
+  async function downloadImage(item: FakeSetItem) {
+    const folder = sets.find((s) => s.id === item.setId)?.name ?? 'folder';
+    const file = `${safeFilename(folder)}-${safeFilename(item.label)}-${item.id}.png`;
+    await downloadFromUrl(item.url, file);
+  }
+
+  async function downloadFolder(folderId: number) {
+    const folderName = sets.find((s) => s.id === folderId)?.name ?? 'folder';
+    const items = (itemsBySetId[folderId] ?? [])
+      .filter((i) => i.status === 'ready')
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    if (items.length === 0) {
+      setSyncMessage('No ready images in this folder to download.');
+      return;
+    }
+
+    setSyncMessage(`Downloading ${items.length} image(s)…`);
+    for (const item of items) {
+      const file = `${safeFilename(folderName)}-${safeFilename(item.label)}-${item.id}.png`;
+      await downloadFromUrl(item.url, file);
+    }
+    setSyncMessage(`Download started for ${items.length} image(s).`);
+  }
+
   if (!product || !variant) {
     return (
       <section className="flex-1 p-4 lg:p-8">
@@ -424,9 +480,6 @@ export default function VariantAssetsPage() {
           </div>
 
           <div className="flex gap-2">
-            <Button variant="outline" onClick={mockFetchLatest} disabled={isGenerating}>
-              Fetch latest
-            </Button>
             <Button
               className="bg-orange-500 hover:bg-orange-600 text-white"
               onClick={() => setGenerateOpen(true)}
@@ -446,7 +499,9 @@ export default function VariantAssetsPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Current assets</CardTitle>
             <div className="flex items-center gap-3">
-              <p className="text-xs text-muted-foreground">{selectedCount} selected</p>
+              <Button variant="outline" onClick={mockFetchLatest} disabled={isGenerating}>
+              Fetch latest
+              </Button>
               {hasMoreThanThree ? (
                 <Button variant="outline" onClick={() => setViewAllOpen(true)}>
                   View all
@@ -578,7 +633,13 @@ export default function VariantAssetsPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem
-                                onClick={() => mockSyncFolder(s.id)}
+                                onSelect={() => downloadFolder(s.id)}
+                                disabled={(itemsBySetId[s.id] ?? []).every((i) => i.status !== 'ready')}
+                              >
+                                Download folder
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => mockSyncFolder(s.id)}
                                 disabled={
                                   isGenerating ||
                                   !hasShopifyLink ||
@@ -592,7 +653,7 @@ export default function VariantAssetsPage() {
                                 <>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => {
+                                    onSelect={() => {
                                       setRenameSetId(s.id);
                                       setRenameSetName(s.name);
                                     }}
@@ -601,7 +662,7 @@ export default function VariantAssetsPage() {
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
                                     variant="destructive"
-                                    onClick={() => setDeleteId({ kind: 'set', id: s.id })}
+                                    onSelect={() => setDeleteId({ kind: 'set', id: s.id })}
                                   >
                                     Delete folder
                                   </DropdownMenuItem>
@@ -649,10 +710,13 @@ export default function VariantAssetsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setMoveOpen(true)}
-                      disabled={!activeFolderId || selectedGenerationCountInActiveFolder === 0}
+                      onClick={() => {
+                        if (!activeFolderId) return;
+                        downloadFolder(activeFolderId);
+                      }}
+                      disabled={!activeFolderId}
                     >
-                      Move
+                      Download folder
                     </Button>
                   </div>
                 </div>
@@ -719,6 +783,12 @@ export default function VariantAssetsPage() {
                                   }}
                                 >
                                   View details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => downloadImage(i)}
+                                  disabled={i.status !== 'ready'}
+                                >
+                                  Download image
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
@@ -875,6 +945,13 @@ export default function VariantAssetsPage() {
                 </FieldGroup>
 
                 <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => downloadImage(detailsItem)}
+                    disabled={detailsItem.status !== 'ready'}
+                  >
+                    Download
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={async () => {
