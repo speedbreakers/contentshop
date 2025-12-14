@@ -210,27 +210,27 @@ function InviteTeamMember() {
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="invite-email" className="mb-2">
-                Email
+              Email
               </FieldLabel>
-              <Input
+            <Input
                 id="invite-email"
-                name="email"
-                type="email"
-                placeholder="Enter email"
-                required
-                disabled={!isOwner}
-              />
+              name="email"
+              type="email"
+              placeholder="Enter email"
+              required
+              disabled={!isOwner}
+            />
             </Field>
 
             <Field>
               <FieldLabel className="mb-2">Role</FieldLabel>
-              <RadioGroup
-                defaultValue="member"
-                name="role"
-                className="flex space-x-4"
-                disabled={!isOwner}
-              >
-                <div className="flex items-center space-x-2 mt-2">
+            <RadioGroup
+              defaultValue="member"
+              name="role"
+              className="flex space-x-4"
+              disabled={!isOwner}
+            >
+              <div className="flex items-center space-x-2 mt-2">
                   <RadioGroupItem value="member" id="invite-role-member" />
                   <FieldLabel
                     htmlFor="invite-role-member"
@@ -238,8 +238,8 @@ function InviteTeamMember() {
                   >
                     Member
                   </FieldLabel>
-                </div>
-                <div className="flex items-center space-x-2 mt-2">
+              </div>
+              <div className="flex items-center space-x-2 mt-2">
                   <RadioGroupItem value="owner" id="invite-role-owner" />
                   <FieldLabel
                     htmlFor="invite-role-owner"
@@ -247,15 +247,15 @@ function InviteTeamMember() {
                   >
                     Owner
                   </FieldLabel>
-                </div>
-              </RadioGroup>
+              </div>
+            </RadioGroup>
             </Field>
 
             {inviteState?.error ? (
               <FieldError>{inviteState.error}</FieldError>
             ) : null}
             {inviteState?.success ? (
-              <p className="text-green-500">{inviteState.success}</p>
+            <p className="text-green-500">{inviteState.success}</p>
             ) : null}
           </FieldGroup>
           <Button
