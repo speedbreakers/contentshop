@@ -597,9 +597,6 @@ export default function VariantAssetsPage() {
           <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div>
               <CardTitle>Generations</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                Folders help you organize generations. The default folder is always present, and new generations land there by default.
-              </p>
               <p className="text-xs text-muted-foreground mt-2">
                 {selectedGenerationCount} selected
               </p>
@@ -658,7 +655,6 @@ export default function VariantAssetsPage() {
                           >
                             <div className="font-medium truncate">
                               {s.name}
-                              {s.isDefault ? ' (Default)' : ''}
                             </div>
                             <div className="text-xs text-muted-foreground">
                               {itemsBySetId[s.id]?.length ?? 0} item(s)
