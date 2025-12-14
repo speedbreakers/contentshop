@@ -139,14 +139,8 @@ export default function VariantAssetsPage() {
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
 
-  // Apparel inputs
-  const [genGarmentFront, setGenGarmentFront] = useState('');
-  const [genGarmentBack, setGenGarmentBack] = useState('');
-  const [genGarmentLeft, setGenGarmentLeft] = useState('');
-  const [genGarmentRight, setGenGarmentRight] = useState('');
-
-  // Non-apparel inputs (one URL per line)
-  const [genProductImages, setGenProductImages] = useState<string[]>([]);
+  // Product images input (array of file URLs)
+  const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '', '', '', '', '']);
 
   const lightboxAsset =
     lightbox?.kind === 'asset' ? assets.find((a) => a.id === lightbox.id) ?? null : null;
@@ -263,41 +257,23 @@ export default function VariantAssetsPage() {
       return;
     }
     const n = Math.max(1, Math.min(10, Math.floor(genNumberOfVariations || 1)));
-    const schemaKey = productCategory === 'apparel' ? 'apparel.v1' : 'non_apparel.v1';
-    const nonApparelImages = genProductImages.map((s) => s.trim()).filter(Boolean);
+    const schemaKey = productCategory === 'apparel' ? 'apparel.v2' : 'non_apparel.v1';
+    const productImages = genProductImages.map((s) => s.trim()).filter(Boolean);
 
-    if (productCategory === 'apparel' && !genGarmentFront.trim()) {
-      setSyncMessage('Garment front image URL is required for apparel generation.');
-      return;
-    }
-    if (productCategory !== 'apparel' && nonApparelImages.length === 0) {
+    if (productImages.length === 0) {
       setSyncMessage('At least one product image URL is required.');
       return;
     }
 
-    const input =
-      productCategory === 'apparel'
-        ? {
-            garment_front: genGarmentFront.trim(),
-            garment_back: genGarmentBack.trim(),
-            garment_left: genGarmentLeft.trim(),
-            garment_right: genGarmentRight.trim(),
-            model_image: genModelImageUrl.trim(),
-            background_image: genBackgroundImageUrl.trim(),
-            number_of_variations: n,
-            output_format: genOutputFormat,
-            aspect_ratio: genAspectRatio,
-            custom_instructions: genCustomInstructions.trim(),
-          }
-        : {
-            product_images: nonApparelImages,
-            model_image: genModelImageUrl.trim(),
-            background_image: genBackgroundImageUrl.trim(),
-            number_of_variations: n,
-            output_format: genOutputFormat,
-            aspect_ratio: genAspectRatio,
-            custom_instructions: genCustomInstructions.trim(),
-          };
+    const input = {
+      product_images: productImages,
+      model_image: genModelImageUrl.trim(),
+      background_image: genBackgroundImageUrl.trim(),
+      number_of_variations: n,
+      output_format: genOutputFormat,
+      aspect_ratio: genAspectRatio,
+      custom_instructions: genCustomInstructions.trim(),
+    };
 
     setIsGenerating(true);
     const now = new Date().toISOString();
@@ -561,7 +537,7 @@ export default function VariantAssetsPage() {
             <CardTitle>Current assets</CardTitle>
             <div className="flex items-center gap-3">
               <Button variant="outline" onClick={mockFetchLatest} disabled={isGenerating}>
-              Fetch latest
+                Fetch latest
               </Button>
               {hasMoreThanThree ? (
                 <Button variant="outline" onClick={() => setViewAllOpen(true)}>
@@ -572,9 +548,9 @@ export default function VariantAssetsPage() {
           </CardHeader>
           <CardContent>
             {previewAssets.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No assets yet. Generate your first folder.
-                  </p>
+              <p className="text-sm text-muted-foreground">
+                No assets yet. Generate your first folder.
+              </p>
             ) : (
               <div className="flex items-center gap-3 overflow-x-auto pb-1">
                 {previewAssets.map((a) => (
@@ -666,9 +642,8 @@ export default function VariantAssetsPage() {
                       return (
                         <div
                           key={s.id}
-                          className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 ${
-                            isActive ? 'bg-muted' : 'hover:bg-muted/50'
-                          }`}
+                          className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 ${isActive ? 'bg-muted' : 'hover:bg-muted/50'
+                            }`}
                         >
                           <button
                             type="button"
@@ -920,74 +895,28 @@ export default function VariantAssetsPage() {
 
       {/* Generate dialog */}
       <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-6xl">
           <DialogHeader>
-            <DialogTitle>Generate new outputs (into default folder)</DialogTitle>
+            <DialogTitle>
+              Generate new outputs
+              <div className="text-xs text-muted-foreground mt-2">
+                Category: <span className="font-medium text-foreground capitalize">{productCategory}</span>
+              </div>
+            </DialogTitle>
           </DialogHeader>
-
           <FieldGroup>
-            <div className="text-sm text-muted-foreground">
-              Category: <span className="font-medium text-foreground capitalize">{productCategory}</span>
-            </div>
-
-            {productCategory === 'apparel' ? (
-              <>
-                <AssetPickerField
-                  label="Garment front *"
-                  value={genGarmentFront}
-                  onChange={setGenGarmentFront}
-                  kind="garment"
-                  description="Upload or choose a previously uploaded garment image."
-                />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <AssetPickerField
-                    label="Garment back"
-                    value={genGarmentBack}
-                    onChange={setGenGarmentBack}
-                    kind="garment"
-                  />
-                  <AssetPickerField
-                    label="Garment left"
-                    value={genGarmentLeft}
-                    onChange={setGenGarmentLeft}
-                    kind="garment"
-                  />
-                  <AssetPickerField
-                    label="Garment right"
-                    value={genGarmentRight}
-                    onChange={setGenGarmentRight}
-                    kind="garment"
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium">Product images *</div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      // Add by opening picker into a temporary slot (reuse model picker UX via prompt).
-                      // We keep this simple: user chooses one image at a time.
-                      setGenProductImages((prev) => [...prev, '']);
-                    }}
-                  >
-                    Add image
-                  </Button>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Upload or choose previously uploaded product images. Templates are not available for product images.
-                </div>
-                {genProductImages.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No images added yet.</div>
-                ) : (
-                  <div className="space-y-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left: required inputs */}
+              <div className="space-y-4 border-r">
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">
+                    Product images <span className="text-red-500">*</span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-2">
                     {genProductImages.map((url, idx) => (
-                      <div key={idx} className="flex items-end gap-2">
+                      <div key={idx} className="flex gap-2">
                         <div className="flex-1">
                           <AssetPickerField
-                            label={`Product image ${idx + 1}`}
                             value={url}
                             onChange={(next) =>
                               setGenProductImages((prev) =>
@@ -997,83 +926,61 @@ export default function VariantAssetsPage() {
                             kind="product"
                           />
                         </div>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          onClick={() =>
-                            setGenProductImages((prev) => prev.filter((_, i) => i !== idx))
-                          }
-                        >
-                          Remove
-                        </Button>
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
               </div>
-            )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <AssetPickerField
-                label="Model image (optional)"
-                value={genModelImageUrl}
-                onChange={setGenModelImageUrl}
-                kind="model"
-                allowTemplates
-                templateKind="model"
-                description="Upload, select from your library, or pick a Content Shop template."
-              />
-              <AssetPickerField
-                label="Background image (optional)"
-                value={genBackgroundImageUrl}
-                onChange={setGenBackgroundImageUrl}
-                kind="background"
-                allowTemplates
-                templateKind="background"
-                description="Upload, select from your library, or pick a Content Shop template."
-              />
-            </div>
+              {/* Right: optional context + settings */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <AssetPickerField
+                    label="Model image (optional)"
+                    value={genModelImageUrl}
+                    onChange={setGenModelImageUrl}
+                    kind="model"
+                    allowTemplates
+                    templateKind="model"
+                  />
+                  <AssetPickerField
+                    label="Background image (optional)"
+                    value={genBackgroundImageUrl}
+                    onChange={setGenBackgroundImageUrl}
+                    kind="background"
+                    allowTemplates
+                    templateKind="background"
+                  />
+                </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Field>
-                <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>
-                <Input
-                  id="gen-variations"
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={String(genNumberOfVariations)}
-                  onChange={(e) => setGenNumberOfVariations(Number(e.target.value))}
-                />
-                <FieldDescription>Max 10.</FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="gen-format">Output format</FieldLabel>
-                <select
-                  id="gen-format"
-                  value={genOutputFormat}
-                  onChange={(e) => setGenOutputFormat(e.target.value as any)}
-                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                >
-                  <option value="png">png</option>
-                  <option value="jpg">jpg</option>
-                  <option value="webp">webp</option>
-                </select>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
-                <select
-                  id="gen-ratio"
-                  value={genAspectRatio}
-                  onChange={(e) => setGenAspectRatio(e.target.value as any)}
-                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                >
-                  <option value="1:1">1:1</option>
-                  <option value="4:5">4:5</option>
-                  <option value="3:4">3:4</option>
-                  <option value="16:9">16:9</option>
-                </select>
-              </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field>
+                    <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>
+                    <Input
+                      id="gen-variations"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={String(genNumberOfVariations)}
+                      onChange={(e) => setGenNumberOfVariations(Number(e.target.value))}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
+                    <select
+                      id="gen-ratio"
+                      value={genAspectRatio}
+                      onChange={(e) => setGenAspectRatio(e.target.value as any)}
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="1:1">1:1</option>
+                      <option value="4:5">4:5</option>
+                      <option value="3:4">3:4</option>
+                      <option value="16:9">16:9</option>
+                    </select>
+                  </Field>
+                </div>
+              </div>
             </div>
 
             <Field>
@@ -1085,9 +992,7 @@ export default function VariantAssetsPage() {
                 placeholder="e.g., brighter background, more premium lighting, centered framing"
                 className="min-h-[120px] resize-none"
               />
-              <FieldDescription>
-                Mock generator for now — later this will call Vertex AI.
-              </FieldDescription>
+              <FieldDescription>Mock generator for now — later this will call Vertex AI.</FieldDescription>
             </Field>
           </FieldGroup>
 

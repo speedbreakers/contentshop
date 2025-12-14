@@ -22,7 +22,7 @@ type LibraryItem = {
 };
 
 export function AssetPickerField(props: {
-  label: string;
+  label?: React.ReactNode;
   value: string;
   onChange: (next: string) => void;
   kind: UploadKind;
@@ -96,7 +96,7 @@ export function AssetPickerField(props: {
 
   return (
     <Field>
-      <FieldLabel>{props.label}</FieldLabel>
+      {props.label ? <FieldLabel>{props.label}</FieldLabel> : null}
       <div className="flex items-center gap-3">
         <div className="group relative h-20 w-20 shrink-0 rounded-md border overflow-hidden bg-muted">
           <button
