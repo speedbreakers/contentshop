@@ -256,13 +256,12 @@ export default function VariantAssetsPage() {
     }, 650);
   }
 
-  function mockGenerateNewAssets(label = 'generated-image') {
+  async function generateNewAssets(label = 'generated-image') {
     if (!defaultSetId) {
       setSyncMessage('Default folder is missing (unexpected).');
       return;
     }
     const n = Math.max(1, Math.min(10, Math.floor(genNumberOfVariations || 1)));
-    const schemaKey = productCategory === 'apparel' ? 'apparel.v2' : 'non_apparel.v1';
     const productImages = genProductImages.map((s) => s.trim()).filter(Boolean);
 
     if (productImages.length === 0) {
@@ -281,19 +280,23 @@ export default function VariantAssetsPage() {
     };
 
     setIsGenerating(true);
+    setSyncMessage(null);
+
     const now = new Date().toISOString();
-    const baseId = Math.floor(Date.now() / 1000);
+    const baseDraftId = -Date.now();
+    const draftIds: number[] = [];
     const drafts: FakeSetItem[] = Array.from({ length: n }).map((_, idx) => {
-      const id = baseId + idx;
+      const id = baseDraftId - idx;
+      draftIds.push(id);
       return {
         id,
         setId: defaultSetId,
         createdAt: now,
         label: `${label} ${idx + 1}`,
         status: 'generating',
-        url: placeholderUrl('Generating…', id, 640),
-        prompt: genCustomInstructions.trim() || 'Generate a clean, high-quality product image.',
-        schemaKey,
+        url: placeholderUrl('Generating…', Math.abs(id), 640),
+        prompt: genCustomInstructions.trim() || 'Generate a hero product image.',
+        schemaKey: 'hero_product.v1',
         input,
         isSelected: false,
       };
@@ -304,17 +307,50 @@ export default function VariantAssetsPage() {
       [defaultSetId]: [...drafts, ...(prev[defaultSetId] ?? [])],
     }));
 
-    setTimeout(() => {
+    try {
+      const res = await fetch(`/api/products/${productId}/variants/${variantId}/generations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schemaKey: 'hero_product.v1', input }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error ? String(data.error) : `Failed to generate (HTTP ${res.status})`;
+        throw new Error(msg);
+      }
+
+      const images: any[] = Array.isArray(data?.images) ? data.images : [];
+      const created: FakeSetItem[] = images.map((img, idx) => ({
+        id: Number(img.id),
+        setId: defaultSetId,
+        createdAt: String(img.createdAt ?? new Date().toISOString()),
+        label: `${label} ${idx + 1}`,
+        status: 'ready',
+        url: String(img.url),
+        prompt: String(img.prompt ?? genCustomInstructions.trim() ?? ''),
+        schemaKey: String(img.schemaKey ?? 'hero_product.v1'),
+        input: img.input ?? input,
+        isSelected: false,
+      }));
+
       setItemsBySetId((prev) => ({
         ...prev,
-        [defaultSetId]: (prev[defaultSetId] ?? []).map((i) =>
-          i.id >= baseId && i.id < baseId + n
-            ? { ...i, status: 'ready', url: placeholderUrl(i.label, i.id, 640) }
-            : i
-        ),
+        [defaultSetId]: [
+          ...created,
+          ...(prev[defaultSetId] ?? []).filter((i) => !draftIds.includes(i.id)),
+        ],
       }));
       setIsGenerating(false);
-    }, 900);
+      setSyncMessage(`Generated ${created.length} image(s).`);
+    } catch (err: any) {
+      setItemsBySetId((prev) => ({
+        ...prev,
+        [defaultSetId]: (prev[defaultSetId] ?? []).filter((i) => !draftIds.includes(i.id)),
+      }));
+      setIsGenerating(false);
+      setSyncMessage(err?.message ? String(err.message) : 'Generation failed.');
+    }
   }
 
   function openLightbox(assetId: number) {
@@ -1000,8 +1036,7 @@ export default function VariantAssetsPage() {
             </Button>
             <Button
               onClick={() => {
-                mockGenerateNewAssets('generated-image');
-                setGenerateOpen(false);
+                generateNewAssets('generated-image').then(() => setGenerateOpen(false));
               }}
               disabled={isGenerating}
             >

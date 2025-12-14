@@ -1,12 +1,15 @@
 import { z } from 'zod';
 import { getTeamForUser } from '@/lib/db/queries';
 import { getProductById } from '@/lib/db/products';
-import { createVariantGenerationWithMockOutputs, listVariantGenerations } from '@/lib/db/generations';
+import { createVariantGenerationWithGeminiOutputs, listVariantGenerations } from '@/lib/db/generations';
+import { signVariantImageToken } from '@/lib/uploads/signing';
 
 function parseId(param: string) {
   const n = Number(param);
   return Number.isFinite(n) ? n : null;
 }
+
+export const runtime = 'nodejs';
 
 export async function GET(
   _request: Request,
@@ -23,20 +26,7 @@ export async function GET(
   return Response.json({ items });
 }
 
-const apparelInputSchema = z.object({
-  garment_front: z.string().min(1),
-  garment_back: z.string().optional().default(''),
-  garment_left: z.string().optional().default(''),
-  garment_right: z.string().optional().default(''),
-  model_image: z.string().optional().default(''),
-  background_image: z.string().optional().default(''),
-  number_of_variations: z.number().int().min(1).max(10).default(1),
-  output_format: z.enum(['png', 'jpg', 'webp']).default('png'),
-  aspect_ratio: z.enum(['1:1', '4:5', '3:4', '16:9']).default('1:1'),
-  custom_instructions: z.string().optional().default(''),
-});
-
-const nonApparelInputSchema = z.object({
+const unifiedInputSchema = z.object({
   product_images: z.array(z.string().min(1)).min(1),
   number_of_variations: z.number().int().min(1).max(10).default(1),
   model_image: z.string().optional().default(''),
@@ -77,36 +67,22 @@ export async function POST(
   const product = await getProductById(team.id, pid);
   if (!product) return Response.json({ error: 'Not found' }, { status: 404 });
 
-  // Validate input based on product category.
-  let validatedInput: any = null;
-  let schemaKey: string = parsed.data.schemaKey;
-
-  if (product.category === 'apparel') {
-    const ok = apparelInputSchema.safeParse(parsed.data.input);
-    if (!ok.success) {
-      return Response.json(
-        { error: ok.error.errors[0]?.message ?? 'Invalid apparel input' },
-        { status: 400 }
-      );
-    }
-    validatedInput = ok.data;
-    schemaKey = 'apparel.v1';
-  } else {
-    const ok = nonApparelInputSchema.safeParse(parsed.data.input);
-    if (!ok.success) {
-      return Response.json(
-        { error: ok.error.errors[0]?.message ?? 'Invalid input' },
-        { status: 400 }
-      );
-    }
-    validatedInput = ok.data;
-    schemaKey = 'non_apparel.v1';
+  // Validate unified input (product_images for all categories).
+  const ok = unifiedInputSchema.safeParse(parsed.data.input);
+  if (!ok.success) {
+    return Response.json(
+      { error: ok.error.errors[0]?.message ?? 'Invalid input' },
+      { status: 400 }
+    );
   }
+  const validatedInput = ok.data;
+  const schemaKey = 'hero_product.v1';
 
   const prompt = validatedInput.custom_instructions || null;
   const numberOfVariations = validatedInput.number_of_variations ?? 1;
 
-  const created = await createVariantGenerationWithMockOutputs({
+  const requestOrigin = new URL(request.url).origin;
+  const created = await createVariantGenerationWithGeminiOutputs({
     teamId: team.id,
     productId: pid,
     variantId: vid,
@@ -114,9 +90,22 @@ export async function POST(
     input: validatedInput,
     numberOfVariations,
     prompt,
+    requestOrigin,
+    productTitle: product.title,
+    productCategory: product.category,
   });
 
-  return Response.json(created, { status: 201 });
+  // Return signed proxy URLs for created images.
+  const exp = Date.now() + 1000 * 60 * 60; // 1 hour
+  const images = (created.images ?? []).map((img) => {
+    const sig = signVariantImageToken({ imageId: img.id, teamId: team.id, exp });
+    return {
+      ...img,
+      url: `/api/variant-images/${img.id}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`,
+    };
+  });
+
+  return Response.json({ ...created, images }, { status: 201 });
 }
 
 

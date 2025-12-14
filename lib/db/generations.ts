@@ -1,6 +1,8 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from './drizzle';
 import { products, productVariants, setItems, sets, variantGenerations, variantImages } from './schema';
+import { put } from '@vercel/blob';
+import { generateText } from 'ai';
 
 export async function listVariantGenerations(teamId: number, variantId: number) {
   return await db
@@ -18,6 +20,13 @@ export async function getVariantGenerationById(teamId: number, generationId: num
   return gen ?? null;
 }
 
+export async function getVariantImageById(teamId: number, imageId: number) {
+  const row = await db.query.variantImages.findFirst({
+    where: and(eq(variantImages.teamId, teamId), eq(variantImages.id, imageId)),
+  });
+  return row ?? null;
+}
+
 export type CreateVariantGenerationInput = {
   teamId: number;
   productId: number;
@@ -27,6 +36,41 @@ export type CreateVariantGenerationInput = {
   numberOfVariations: number;
   prompt?: string | null;
 };
+
+export type CreateVariantGenerationGeminiInput = CreateVariantGenerationInput & {
+  requestOrigin: string;
+  productTitle: string;
+  productCategory: string;
+};
+
+function resolveUrl(origin: string, maybeRelative: string) {
+  if (!maybeRelative) return maybeRelative;
+  if (maybeRelative.startsWith('http://') || maybeRelative.startsWith('https://')) return maybeRelative;
+  if (maybeRelative.startsWith('/')) return `${origin}${maybeRelative}`;
+  return maybeRelative;
+}
+
+async function fetchAsBytes(url: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
+  const mimeType = res.headers.get('content-type') ?? 'application/octet-stream';
+  const ab = await res.arrayBuffer();
+  return { bytes: new Uint8Array(ab), mimeType };
+}
+
+function coerceResultFileToBytes(file: any): { bytes: Uint8Array; mimeType: string } {
+  const mimeType = file?.mediaType ?? file?.mimeType ?? 'image/png';
+  if (typeof file?.base64 === 'string') {
+    return { bytes: new Uint8Array(Buffer.from(file.base64, 'base64')), mimeType };
+  }
+  if (file?.data instanceof Uint8Array) {
+    return { bytes: file.data, mimeType };
+  }
+  if (file?.data && typeof file.data === 'object' && typeof file.data.length === 'number') {
+    return { bytes: new Uint8Array(file.data), mimeType };
+  }
+  throw new Error('Unsupported result.files entry (no base64/data)');
+}
 
 /**
  * MVP helper: creates a generation record and N output images (mock URLs),
@@ -148,6 +192,183 @@ export async function createVariantGenerationWithMockOutputs(input: CreateVarian
 
     return { generation: updatedGen ?? gen, images: createdImages, folderId: folder.id };
   });
+}
+
+/**
+ * Hero generation: calls Gemini image generation via Vercel AI SDK (AI Gateway),
+ * uploads outputs to Vercel Blob, persists variant_images, and adds them to the default folder.
+ */
+export async function createVariantGenerationWithGeminiOutputs(input: CreateVariantGenerationGeminiInput) {
+  const now = new Date();
+
+  // Validate variant/product belong to team and aren't deleted.
+  const variant = await db.query.productVariants.findFirst({
+    where: and(
+      eq(productVariants.teamId, input.teamId),
+      eq(productVariants.productId, input.productId),
+      eq(productVariants.id, input.variantId),
+      isNull(productVariants.deletedAt)
+    ),
+    columns: { id: true },
+  });
+  if (!variant) throw new Error('Variant not found');
+
+  const product = await db.query.products.findFirst({
+    where: and(eq(products.teamId, input.teamId), eq(products.id, input.productId), isNull(products.deletedAt)),
+    columns: { id: true },
+  });
+  if (!product) throw new Error('Product not found');
+
+  const [gen] = await db
+    .insert(variantGenerations)
+    .values({
+      teamId: input.teamId,
+      variantId: input.variantId,
+      schemaKey: input.schemaKey,
+      input: input.input ?? null,
+      numberOfVariations: input.numberOfVariations,
+      provider: 'gemini',
+      status: 'generating',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+
+  if (!gen) throw new Error('Failed to create generation');
+
+  try {
+    // Ensure default folder exists.
+    const defaultFolder = await db.query.sets.findFirst({
+      where: and(
+        eq(sets.teamId, input.teamId),
+        eq(sets.variantId, input.variantId),
+        eq(sets.isDefault, true),
+        isNull(sets.deletedAt)
+      ),
+    });
+
+    const folder =
+      defaultFolder ??
+      (await db
+        .insert(sets)
+        .values({
+          teamId: input.teamId,
+          scopeType: 'variant',
+          productId: input.productId,
+          variantId: input.variantId,
+          isDefault: true,
+          name: 'Default',
+          description: 'All generations (auto-created)',
+          createdByUserId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null));
+
+    if (!folder) throw new Error('Failed to ensure default folder');
+
+    const productImages: string[] = Array.isArray((input.input as any)?.product_images)
+      ? (input.input as any).product_images
+      : [];
+    if (productImages.length === 0) throw new Error('product_images is required');
+
+    const resolved = productImages.map((u) => resolveUrl(input.requestOrigin, String(u)));
+    const referenceImages = await Promise.all(resolved.map(fetchAsBytes));
+
+    const prompt =
+      (input.prompt?.trim()
+        ? `Generate a studio-quality hero product image for \"${input.productTitle}\". ${input.prompt.trim()}`
+        : `Generate a studio-quality hero product image for \"${input.productTitle}\".`) +
+      ` Category: ${input.productCategory}.`;
+
+    const uploaded: Array<{ blobUrl: string; prompt: string }> = [];
+
+    for (let idx = 0; idx < input.numberOfVariations; idx++) {
+      // Multimodal: include reference images + prompt.
+      const result: any = await generateText({
+        model: 'google/gemini-2.5-flash-image',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              ...referenceImages.map((ri) => ({
+                type: 'image',
+                image: ri.bytes,
+                mimeType: ri.mimeType,
+              })),
+            ],
+          },
+        ],
+      } as any);
+
+      const files: any[] = Array.isArray(result?.files) ? result.files : [];
+      const firstImage = files.find((f) => String(f?.mediaType ?? f?.mimeType ?? '').startsWith('image/')) ?? files[0];
+      if (!firstImage) throw new Error('Gemini returned no files');
+
+      const { bytes, mimeType } = coerceResultFileToBytes(firstImage);
+      const ext =
+        mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : mimeType === 'image/png' ? 'png' : 'png';
+
+      const pathname = `team-${input.teamId}/variant-${input.variantId}/generations/${gen.id}/${idx + 1}.${ext}`;
+      const blob = new Blob([bytes], { type: mimeType });
+      const putRes = await put(pathname, blob, {
+        access: 'public',
+        contentType: mimeType,
+        addRandomSuffix: false,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      } as any);
+
+      uploaded.push({ blobUrl: putRes.url, prompt: input.prompt ?? '' });
+    }
+
+    const createdImages = await db
+      .insert(variantImages)
+      .values(
+        uploaded.map((u) => ({
+          teamId: input.teamId,
+          variantId: input.variantId,
+          generationId: gen.id,
+          status: 'ready',
+          url: u.blobUrl,
+          prompt: input.prompt ?? null,
+          schemaKey: input.schemaKey,
+          input: input.input ?? null,
+          createdAt: new Date(),
+        }))
+      )
+      .returning();
+
+    if (createdImages.length > 0) {
+      await db.insert(setItems).values(
+        createdImages.map((img, idx) => ({
+          teamId: input.teamId,
+          setId: folder.id,
+          itemType: 'variant_image',
+          itemId: img.id,
+          sortOrder: idx,
+          addedByUserId: null,
+          createdAt: new Date(),
+        }))
+      );
+    }
+
+    const [updatedGen] = await db
+      .update(variantGenerations)
+      .set({ status: 'ready', updatedAt: new Date() })
+      .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, gen.id)))
+      .returning();
+
+    return { generation: updatedGen ?? gen, images: createdImages, folderId: folder.id };
+  } catch (err: any) {
+    const message = err?.message ? String(err.message).slice(0, 500) : 'Generation failed';
+    await db
+      .update(variantGenerations)
+      .set({ status: 'failed', errorMessage: message, updatedAt: new Date() })
+      .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, gen.id)));
+    throw err;
+  }
 }
 
 

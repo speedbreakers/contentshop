@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@ai-sdk/react':
         specifier: ^2.0.115
-        version: 2.0.115(react@19.1.0)(zod@3.24.4)
+        version: 2.0.115(react@19.1.0)(zod@4.1.13)
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.1.5(@types/react@19.1.4))(@types/react@19.1.4)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -46,7 +46,7 @@ importers:
         version: 2.0.0
       ai:
         specifier: ^5.0.113
-        version: 5.0.113(zod@3.24.4)
+        version: 5.0.113(zod@4.1.13)
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.21(postcss@8.5.3)
@@ -117,9 +117,12 @@ importers:
         specifier: ^5.8.3
         version: 5.8.3
       zod:
-        specifier: ^3.24.4
-        version: 3.24.4
+        specifier: ^4.0.0
+        version: 4.1.13
     devDependencies:
+      baseline-browser-mapping:
+        specifier: ^2.9.7
+        version: 2.9.7
       shadcn:
         specifier: ^3.6.0
         version: 3.6.0(@types/node@22.15.18)(typescript@5.8.3)
@@ -3511,35 +3514,38 @@ packages:
   zod@3.24.4:
     resolution: {integrity: sha512-OdqJE9UDRPwWsrHjLN2F8bPxvwJBK22EHLWtanu0LSYr5YqzsaaW3RMgmjwr8Rypg5k+meEJdSPXJZXE/yqOMg==}
 
+  zod@4.1.13:
+    resolution: {integrity: sha512-AvvthqfqrAhNH9dnfmrfKzX5upOdjUVJYFqNSlkmGf64gRaTzlPwz99IHYnVs28qYAybvAlBV+H7pn0saFY4Ig==}
+
 snapshots:
 
-  '@ai-sdk/gateway@2.0.21(zod@3.24.4)':
+  '@ai-sdk/gateway@2.0.21(zod@4.1.13)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.19(zod@3.24.4)
+      '@ai-sdk/provider-utils': 3.0.19(zod@4.1.13)
       '@vercel/oidc': 3.0.5
-      zod: 3.24.4
+      zod: 4.1.13
 
-  '@ai-sdk/provider-utils@3.0.19(zod@3.24.4)':
+  '@ai-sdk/provider-utils@3.0.19(zod@4.1.13)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
       '@standard-schema/spec': 1.0.0
       eventsource-parser: 3.0.6
-      zod: 3.24.4
+      zod: 4.1.13
 
   '@ai-sdk/provider@2.0.0':
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/react@2.0.115(react@19.1.0)(zod@3.24.4)':
+  '@ai-sdk/react@2.0.115(react@19.1.0)(zod@4.1.13)':
     dependencies:
-      '@ai-sdk/provider-utils': 3.0.19(zod@3.24.4)
-      ai: 5.0.113(zod@3.24.4)
+      '@ai-sdk/provider-utils': 3.0.19(zod@4.1.13)
+      ai: 5.0.113(zod@4.1.13)
       react: 19.1.0
       swr: 2.3.3(react@19.1.0)
       throttleit: 2.1.0
     optionalDependencies:
-      zod: 3.24.4
+      zod: 4.1.13
 
   '@alloc/quick-lru@5.2.0': {}
 
@@ -5189,13 +5195,13 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@5.0.113(zod@3.24.4):
+  ai@5.0.113(zod@4.1.13):
     dependencies:
-      '@ai-sdk/gateway': 2.0.21(zod@3.24.4)
+      '@ai-sdk/gateway': 2.0.21(zod@4.1.13)
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.19(zod@3.24.4)
+      '@ai-sdk/provider-utils': 3.0.19(zod@4.1.13)
       '@opentelemetry/api': 1.9.0
-      zod: 3.24.4
+      zod: 4.1.13
 
   ajv-formats@3.0.1(ajv@8.17.1):
     optionalDependencies:
@@ -6725,3 +6731,5 @@ snapshots:
       zod: 3.24.4
 
   zod@3.24.4: {}
+
+  zod@4.1.13: {}

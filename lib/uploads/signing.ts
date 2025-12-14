@@ -45,4 +45,35 @@ export function verifyDownloadToken(input: { fileId: number; teamId: number; exp
   return timingSafeEqual(provided, expected);
 }
 
+export function signVariantImageToken(input: { imageId: number; exp: number; teamId: number }) {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error('AUTH_SECRET is required to sign download URLs');
+  if (!Number.isFinite(input.teamId)) throw new Error('teamId is required to sign download URLs');
+  const payload = `variant_image.${input.imageId}.${input.teamId}.${input.exp}`;
+  const mac = createHmac('sha256', secret).update(payload).digest();
+  return base64url(mac);
+}
+
+export function verifyVariantImageToken(input: { imageId: number; teamId: number; exp: number; sig: string }) {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return false;
+  if (!Number.isFinite(input.exp) || input.exp <= Date.now()) return false;
+  if (!Number.isFinite(input.teamId)) return false;
+
+  const payload = `variant_image.${input.imageId}.${input.teamId}.${input.exp}`;
+  const expected = createHmac('sha256', secret).update(payload).digest();
+
+  const providedB64 = input.sig.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = providedB64.length % 4 === 0 ? '' : '='.repeat(4 - (providedB64.length % 4));
+  let provided: Buffer;
+  try {
+    provided = Buffer.from(providedB64 + pad, 'base64');
+  } catch {
+    return false;
+  }
+
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(provided, expected);
+}
+
 
