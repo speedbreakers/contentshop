@@ -64,6 +64,13 @@
       "when": 1734195600000,
       "tag": "0008_product_descriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1734282000000,
+      "tag": "0009_team_credits",
+      "breakpoints": true
     }
   ]
 }

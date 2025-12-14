@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useSWR, { mutate } from 'swr';
 import { useTheme } from 'next-themes';
-import { Box, LogOut, Moon, Settings, Shield, Sun, Activity, Users, Store } from 'lucide-react';
+import { Box, LogOut, Moon, Settings, Shield, Sun, Activity, Users, Store, BarChart3, CreditCard } from 'lucide-react';
+import { CreditBalance } from '@/components/credits/credit-balance';
 
 import type { User } from '@/lib/db/schema';
 import { signOut } from '@/app/(login)/actions';
@@ -112,10 +113,12 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   const isProducts = pathname.startsWith('/dashboard/products');
+  const isUsage = pathname.startsWith('/dashboard/usage');
   const isTeam = pathname === '/dashboard';
   const isGeneral = pathname.startsWith('/dashboard/general');
   const isActivity = pathname.startsWith('/dashboard/activity');
   const isSecurity = pathname.startsWith('/dashboard/security');
+  const isPricing = pathname.startsWith('/pricing');
 
   return (
     <Sidebar variant="inset" collapsible="icon">
@@ -144,6 +147,33 @@ export function AppSidebar() {
                   <Link href="/dashboard/products">
                     <Box />
                     <span>Products</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <hr />
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Billing</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <CreditBalance />
+            <SidebarMenu className="mt-2">
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isUsage} tooltip="Usage">
+                  <Link href="/dashboard/usage">
+                    <BarChart3 />
+                    <span>Usage</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isPricing} tooltip="Plans">
+                  <Link href="/pricing">
+                    <CreditCard />
+                    <span>Plans</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

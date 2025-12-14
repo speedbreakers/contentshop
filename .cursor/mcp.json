@@ -14,6 +14,11 @@
         "shadcn@latest",
         "mcp"
       ]
+    },
+    "stripe": {
+      "command": "npx",
+      "args": ["-y", "@stripe/mcp", "--tools=all"],
+      "env": {}
     }
   }
 }

@@ -3,5 +3,6 @@
 - shopify link
 - garment / non-garment workflow
 - description generation - Done
-- invite team members
+- description workflow
+- invite team members email
 - credits system

@@ -33,6 +33,12 @@ export const teams = pgTable('teams', {
   stripeProductId: text('stripe_product_id'),
   planName: varchar('plan_name', { length: 50 }),
   subscriptionStatus: varchar('subscription_status', { length: 20 }),
+  // Credit system fields
+  planTier: varchar('plan_tier', { length: 20 }), // starter|growth|scale
+  overageEnabled: boolean('overage_enabled').default(true),
+  overageLimitCents: integer('overage_limit_cents'),
+  stripeImageMeterId: text('stripe_image_meter_id'),
+  stripeTextMeterId: text('stripe_text_meter_id'),
 });
 
 export const teamMembers = pgTable('team_members', {
@@ -427,6 +433,74 @@ export const productDescriptions = pgTable(
   })
 );
 
+/**
+ * Team Credits (credit allocations per billing period)
+ * - Tracks included credits and usage for each billing period.
+ * - Overage usage is tracked separately for metered billing.
+ */
+export const teamCredits = pgTable(
+  'team_credits',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+
+    periodStart: timestamp('period_start').notNull(),
+    periodEnd: timestamp('period_end').notNull(),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+
+    // Included credits from subscription tier
+    imageCreditsIncluded: integer('image_credits_included').notNull().default(0),
+    textCreditsIncluded: integer('text_credits_included').notNull().default(0),
+
+    // Usage counters
+    imageCreditsUsed: integer('image_credits_used').notNull().default(0),
+    textCreditsUsed: integer('text_credits_used').notNull().default(0),
+
+    // Overage usage (beyond included)
+    imageOverageUsed: integer('image_overage_used').notNull().default(0),
+    textOverageUsed: integer('text_overage_used').notNull().default(0),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('team_credits_team_idx').on(t.teamId),
+    periodIdx: index('team_credits_period_idx').on(t.teamId, t.periodStart),
+  })
+);
+
+/**
+ * Usage Records (audit trail for credit usage)
+ * - Tracks individual generation events for billing and analytics.
+ */
+export const usageRecords = pgTable(
+  'usage_records',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    userId: integer('user_id').references(() => users.id),
+    teamCreditsId: integer('team_credits_id').references(() => teamCredits.id),
+
+    usageType: varchar('usage_type', { length: 20 }).notNull(), // 'image' | 'text'
+    referenceType: varchar('reference_type', { length: 30 }), // 'variant_generation' | 'product_description'
+    referenceId: integer('reference_id'),
+
+    creditsUsed: integer('credits_used').notNull().default(1),
+    isOverage: boolean('is_overage').notNull().default(false),
+    stripeUsageRecordId: text('stripe_usage_record_id'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('usage_records_team_idx').on(t.teamId),
+    creditsIdx: index('usage_records_credits_idx').on(t.teamCreditsId),
+  })
+);
+
 export const teamsRelations = relations(teams, ({ many }) => ({
   teamMembers: many(teamMembers),
   activityLogs: many(activityLogs),
@@ -434,6 +508,8 @@ export const teamsRelations = relations(teams, ({ many }) => ({
   products: many(products),
   uploadedFiles: many(uploadedFiles),
   sets: many(sets),
+  teamCredits: many(teamCredits),
+  usageRecords: many(usageRecords),
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -500,6 +576,29 @@ export const productDescriptionsRelations = relations(productDescriptions, ({ on
   product: one(products, {
     fields: [productDescriptions.productId],
     references: [products.id],
+  }),
+}));
+
+export const teamCreditsRelations = relations(teamCredits, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [teamCredits.teamId],
+    references: [teams.id],
+  }),
+  usageRecords: many(usageRecords),
+}));
+
+export const usageRecordsRelations = relations(usageRecords, ({ one }) => ({
+  team: one(teams, {
+    fields: [usageRecords.teamId],
+    references: [teams.id],
+  }),
+  user: one(users, {
+    fields: [usageRecords.userId],
+    references: [users.id],
+  }),
+  teamCredit: one(teamCredits, {
+    fields: [usageRecords.teamCreditsId],
+    references: [teamCredits.id],
   }),
 }));
 
@@ -647,6 +746,10 @@ export type SetEvent = typeof setEvents.$inferSelect;
 export type NewSetEvent = typeof setEvents.$inferInsert;
 export type ProductDescription = typeof productDescriptions.$inferSelect;
 export type NewProductDescription = typeof productDescriptions.$inferInsert;
+export type TeamCredits = typeof teamCredits.$inferSelect;
+export type NewTeamCredits = typeof teamCredits.$inferInsert;
+export type UsageRecord = typeof usageRecords.$inferSelect;
+export type NewUsageRecord = typeof usageRecords.$inferInsert;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

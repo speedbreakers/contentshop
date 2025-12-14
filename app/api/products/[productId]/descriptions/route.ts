@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { getTeamForUser } from '@/lib/db/queries';
+import { getTeamForUser, getUser } from '@/lib/db/queries';
 import { getProductById, listProductDescriptions, createProductDescription } from '@/lib/db/products';
+import { checkCredits, deductCredits } from '@/lib/payments/credits';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -59,6 +60,38 @@ export async function POST(
     );
   }
 
+  // Check credits before generation
+  const creditCheck = await checkCredits(team.id, 'text', 1);
+  
+  if (!creditCheck.allowed) {
+    return Response.json(
+      {
+        error: 'insufficient_credits',
+        reason: creditCheck.reason,
+        remaining: creditCheck.remaining,
+        required: 1,
+        upgradeUrl: '/pricing',
+      },
+      { status: 402 }
+    );
+  }
+
+  // If overage required, check if confirmation was provided
+  if (creditCheck.isOverage) {
+    const confirmOverage = request.headers.get('x-confirm-overage');
+    if (confirmOverage !== 'true') {
+      return Response.json(
+        {
+          requiresOverageConfirmation: true,
+          overageCount: creditCheck.overageCount,
+          overageCost: creditCheck.overageCost,
+          remaining: creditCheck.remaining,
+        },
+        { status: 200 }
+      );
+    }
+  }
+
   const description = await createProductDescription({
     teamId: team.id,
     productId: pid,
@@ -69,6 +102,17 @@ export async function POST(
     productCategory: product.category,
     productImageUrl: product.imageUrl ?? null,
   });
+
+  // Deduct credits after successful generation
+  const user = await getUser();
+  if (creditCheck.creditsId) {
+    await deductCredits(team.id, user?.id ?? null, 'text', 1, {
+      isOverage: creditCheck.isOverage,
+      creditsId: creditCheck.creditsId,
+      referenceType: 'product_description',
+      referenceId: description.id,
+    });
+  }
 
   return Response.json({ description }, { status: 201 });
 }

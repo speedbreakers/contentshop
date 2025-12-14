@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { getTeamForUser } from '@/lib/db/queries';
+import { getTeamForUser, getUser } from '@/lib/db/queries';
 import { getProductById } from '@/lib/db/products';
 import { createVariantGenerationWithGeminiOutputs, listVariantGenerations } from '@/lib/db/generations';
 import { signVariantImageToken } from '@/lib/uploads/signing';
+import { checkCredits, deductCredits } from '@/lib/payments/credits';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -81,6 +82,38 @@ export async function POST(
   const prompt = validatedInput.custom_instructions || null;
   const numberOfVariations = validatedInput.number_of_variations ?? 1;
 
+  // Check credits before generation
+  const creditCheck = await checkCredits(team.id, 'image', numberOfVariations);
+  
+  if (!creditCheck.allowed) {
+    return Response.json(
+      {
+        error: 'insufficient_credits',
+        reason: creditCheck.reason,
+        remaining: creditCheck.remaining,
+        required: numberOfVariations,
+        upgradeUrl: '/pricing',
+      },
+      { status: 402 }
+    );
+  }
+
+  // If overage required, check if confirmation was provided
+  if (creditCheck.isOverage) {
+    const confirmOverage = request.headers.get('x-confirm-overage');
+    if (confirmOverage !== 'true') {
+      return Response.json(
+        {
+          requiresOverageConfirmation: true,
+          overageCount: creditCheck.overageCount,
+          overageCost: creditCheck.overageCost,
+          remaining: creditCheck.remaining,
+        },
+        { status: 200 }
+      );
+    }
+  }
+
   const requestOrigin = new URL(request.url).origin;
   const created = await createVariantGenerationWithGeminiOutputs({
     teamId: team.id,
@@ -94,6 +127,17 @@ export async function POST(
     productTitle: product.title,
     productCategory: product.category,
   });
+
+  // Deduct credits after successful generation
+  const user = await getUser();
+  if (creditCheck.creditsId) {
+    await deductCredits(team.id, user?.id ?? null, 'image', numberOfVariations, {
+      isOverage: creditCheck.isOverage,
+      creditsId: creditCheck.creditsId,
+      referenceType: 'variant_generation',
+      referenceId: created.generation.id,
+    });
+  }
 
   // Return signed proxy URLs for created images.
   const exp = Date.now() + 1000 * 60 * 60; // 1 hour

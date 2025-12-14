@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { AssetPickerField } from '@/components/asset-picker';
+import { refreshCredits } from '@/components/credits/credit-balance';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -425,6 +426,7 @@ export default function VariantAssetsPage() {
       }));
       setIsGenerating(false);
       setSyncMessage(`Generated ${created.length} image(s).`);
+      refreshCredits(); // Update sidebar credit balance
       return true;
     } catch (err: any) {
       setItemsBySetId((prev) => ({
@@ -526,6 +528,7 @@ export default function VariantAssetsPage() {
 
       setIsGenerating(false);
       setLightbox(null);
+      refreshCredits(); // Update sidebar credit balance
     } catch (err: any) {
       setItemsBySetId((prev) => ({
         ...prev,

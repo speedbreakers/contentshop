@@ -94,6 +94,10 @@ export function GenerateDescriptionDialog(props: {
 
       props.onGenerated(description);
       props.onOpenChange(false);
+      
+      // Update sidebar credit balance
+      const { refreshCredits } = await import('@/components/credits/credit-balance');
+      refreshCredits();
     } catch (e: any) {
       setError(e?.message ? String(e.message) : 'Generation failed');
     } finally {
