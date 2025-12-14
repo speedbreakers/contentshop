@@ -21,6 +21,7 @@ async function getCurrentSubscription() {
       subscriptionStatus: teams.subscriptionStatus,
       planName: teams.planName,
       stripeSubscriptionId: teams.stripeSubscriptionId,
+      stripeCustomerId: teams.stripeCustomerId,
     })
     .from(teamMembers)
     .innerJoin(teams, eq(teams.id, teamMembers.teamId))
@@ -29,12 +30,26 @@ async function getCurrentSubscription() {
 
   if (!userTeam[0]) return null;
 
+  // Check if user has ever had a subscription (for trial eligibility)
+  let hasHadSubscriptionBefore = false;
+  if (userTeam[0].stripeCustomerId) {
+    // Import stripe dynamically to avoid issues
+    const { stripe } = await import('@/lib/payments/stripe');
+    const subscriptions = await stripe.subscriptions.list({
+      customer: userTeam[0].stripeCustomerId,
+      limit: 1,
+      status: 'all',
+    });
+    hasHadSubscriptionBefore = subscriptions.data.length > 0;
+  }
+
   return {
     planTier: userTeam[0].planTier as PlanTier | null,
     subscriptionStatus: userTeam[0].subscriptionStatus,
     planName: userTeam[0].planName,
     hasSubscription: !!userTeam[0].stripeSubscriptionId && 
       ['active', 'trialing'].includes(userTeam[0].subscriptionStatus ?? ''),
+    isEligibleForTrial: !hasHadSubscriptionBefore,
   };
 }
 
@@ -72,6 +87,7 @@ export default async function PricingPage() {
 
   const currentTier = subscription?.planTier;
   const hasActiveSubscription = subscription?.hasSubscription ?? false;
+  const isEligibleForTrial = subscription?.isEligibleForTrial ?? true;
 
   return (
     <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -88,10 +104,14 @@ export default async function PricingPage() {
               </span>{' '}
               plan. Upgrade or downgrade anytime.
             </>
-          ) : (
+          ) : isEligibleForTrial ? (
             <>
               Choose the plan that fits your content needs. All plans include a{' '}
               {TRIAL_PERIOD_DAYS}-day free trial.
+            </>
+          ) : (
+            <>
+              Choose the plan that fits your content needs.
             </>
           )}
         </p>
@@ -132,6 +152,7 @@ export default async function PricingPage() {
               recommended={plan.recommended}
               action={action}
               hasActiveSubscription={hasActiveSubscription}
+              isEligibleForTrial={subscription?.isEligibleForTrial ?? true}
             />
           );
         })}
@@ -260,6 +281,7 @@ function PricingCard({
   recommended,
   action,
   hasActiveSubscription,
+  isEligibleForTrial,
 }: {
   tier: PlanTier;
   name: string;
@@ -275,8 +297,19 @@ function PricingCard({
   recommended?: boolean;
   action: 'current' | 'upgrade' | 'downgrade' | 'subscribe';
   hasActiveSubscription: boolean;
+  isEligibleForTrial: boolean;
 }) {
   const isCurrentPlan = action === 'current';
+
+  // Determine subtitle text
+  let subtitle = `$${price / 100}/${interval}`;
+  if (!hasActiveSubscription) {
+    if (isEligibleForTrial) {
+      subtitle = `${trialDays}-day free trial`;
+    } else {
+      subtitle = 'Start immediately';
+    }
+  }
 
   return (
     <div
@@ -309,7 +342,7 @@ function PricingCard({
         {name}
       </h2>
       <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-        {hasActiveSubscription ? `$${price / 100}/${interval}` : `${trialDays}-day free trial`}
+        {subtitle}
       </p>
 
       <p className="mb-6">

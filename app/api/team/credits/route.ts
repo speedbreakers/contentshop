@@ -2,6 +2,9 @@ import { getTeamForUser } from '@/lib/db/queries';
 import { getCreditBalance } from '@/lib/payments/credits';
 import { getTeamPlanTier, getTeamOverageSettings } from '@/lib/db/credits';
 import { PLANS, type PlanTier } from '@/lib/payments/plans';
+import { db } from '@/lib/db/drizzle';
+import { teams } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 
@@ -11,11 +14,26 @@ export async function GET() {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Check actual subscription status from team record
+  const teamRecord = await db
+    .select({
+      subscriptionStatus: teams.subscriptionStatus,
+      stripeSubscriptionId: teams.stripeSubscriptionId,
+    })
+    .from(teams)
+    .where(eq(teams.id, team.id))
+    .limit(1);
+
+  const isSubscriptionActive = 
+    teamRecord[0]?.stripeSubscriptionId &&
+    ['active', 'trialing'].includes(teamRecord[0]?.subscriptionStatus ?? '');
+
   const balance = await getCreditBalance(team.id);
   const planTier = await getTeamPlanTier(team.id);
   const overageSettings = await getTeamOverageSettings(team.id);
 
-  if (!balance) {
+  // No active subscription or no balance
+  if (!isSubscriptionActive || !balance) {
     return Response.json({
       hasSubscription: false,
       planTier: null,

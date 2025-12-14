@@ -192,7 +192,7 @@ export async function getTeamPlanTier(teamId: number): Promise<string | null> {
  */
 export async function updateTeamPlanTier(
   teamId: number,
-  planTier: string
+  planTier: string | null
 ): Promise<void> {
   await db
     .update(teams)

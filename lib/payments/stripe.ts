@@ -27,7 +27,22 @@ export async function createCheckoutSession({
     redirect(`/sign-up?redirect=checkout&priceId=${priceId}`);
   }
 
-  const session = await stripe.checkout.sessions.create({
+  // Check if this is a first-time subscriber
+  // Only offer trial if they've never had a subscription before
+  let isFirstTimeSubscriber = true;
+
+  if (team.stripeCustomerId) {
+    // Check Stripe for past subscriptions
+    const subscriptions = await stripe.subscriptions.list({
+      customer: team.stripeCustomerId,
+      limit: 1,
+      status: 'all', // Include cancelled subscriptions
+    });
+    
+    isFirstTimeSubscriber = subscriptions.data.length === 0;
+  }
+
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
     payment_method_types: ['card'],
     line_items: [
       {
@@ -41,10 +56,16 @@ export async function createCheckoutSession({
     customer: team.stripeCustomerId || undefined,
     client_reference_id: user.id.toString(),
     allow_promotion_codes: true,
-    subscription_data: {
-      trial_period_days: 14
-    }
-  });
+  };
+
+  // Only add trial for first-time subscribers
+  if (isFirstTimeSubscriber) {
+    sessionParams.subscription_data = {
+      trial_period_days: TRIAL_PERIOD_DAYS
+    };
+  }
+
+  const session = await stripe.checkout.sessions.create(sessionParams);
 
   redirect(session.url!);
 }
@@ -96,41 +117,57 @@ export async function createCustomerPortalSession(team: Team) {
     }
   }
 
-  // Create or update portal configuration with all products
-  // Always create fresh to ensure all products are included
-  const configuration = await stripe.billingPortal.configurations.create({
-    business_profile: {
-      headline: 'Manage your Content Shop subscription',
-    },
-    features: {
-      subscription_update: {
-        enabled: true,
-        default_allowed_updates: ['price', 'promotion_code'],
-        proration_behavior: 'create_prorations',
-        products: productConfigs,
+  // Try to find existing configuration first, otherwise create new
+  // Creating multiple configurations can cause billing inconsistencies
+  const existingConfigs = await stripe.billingPortal.configurations.list({ limit: 10 });
+  let configuration: Stripe.BillingPortal.Configuration | null = null;
+
+  // Look for an active configuration with our products
+  for (const config of existingConfigs.data) {
+    if (config.is_default || config.active) {
+      configuration = config;
+      break;
+    }
+  }
+
+  // If no suitable configuration exists, create one
+  if (!configuration) {
+    configuration = await stripe.billingPortal.configurations.create({
+      business_profile: {
+        headline: 'Manage your Content Shop subscription',
       },
-      subscription_cancel: {
-        enabled: true,
-        mode: 'at_period_end',
-        cancellation_reason: {
+      features: {
+        subscription_update: {
           enabled: true,
-          options: [
-            'too_expensive',
-            'missing_features',
-            'switched_service',
-            'unused',
-            'other',
-          ],
+          default_allowed_updates: ['price', 'promotion_code'],
+          // Use 'create_prorations' - prorations will be added to the next invoice
+          // This prevents immediate double-charging on plan changes
+          proration_behavior: 'create_prorations',
+          products: productConfigs,
+        },
+        subscription_cancel: {
+          enabled: true,
+          mode: 'at_period_end',
+          cancellation_reason: {
+            enabled: true,
+            options: [
+              'too_expensive',
+              'missing_features',
+              'switched_service',
+              'unused',
+              'other',
+            ],
+          },
+        },
+        payment_method_update: {
+          enabled: true,
+        },
+        invoice_history: {
+          enabled: true,
         },
       },
-      payment_method_update: {
-        enabled: true,
-      },
-      invoice_history: {
-        enabled: true,
-      },
-    },
-  });
+    });
+  }
 
   return stripe.billingPortal.sessions.create({
     customer: team.stripeCustomerId,
@@ -145,6 +182,14 @@ export async function handleSubscriptionChange(
   const customerId = subscription.customer as string;
   const subscriptionId = subscription.id;
   const status = subscription.status;
+  
+  // Type assertion to access cancel_at_period_end
+  const subData = subscription as unknown as {
+    cancel_at_period_end?: boolean;
+    canceled_at?: number | null;
+  };
+
+  console.log(`Subscription change: ${subscriptionId}, status: ${status}, cancel_at_period_end: ${subData.cancel_at_period_end}`);
 
   const team = await getTeamByStripeCustomerId(customerId);
 
@@ -153,7 +198,33 @@ export async function handleSubscriptionChange(
     return;
   }
 
-  if (status === 'active' || status === 'trialing') {
+  // Check if subscription is cancelled (immediately or at period end)
+  const isCancelled = status === 'canceled' || status === 'unpaid';
+  const isScheduledForCancellation = subData.cancel_at_period_end === true;
+
+  if (isCancelled) {
+    // Subscription is fully cancelled
+    await updateTeamSubscription(team.id, {
+      stripeSubscriptionId: null,
+      stripeProductId: null,
+      planName: null,
+      subscriptionStatus: status
+    });
+    await updateTeamPlanTier(team.id, null);
+    console.log(`Subscription ${status} for team ${team.id}, cleared plan and credits`);
+  } else if (isScheduledForCancellation) {
+    // Subscription is scheduled for cancellation at period end
+    // Keep access until period ends but update status
+    await updateTeamSubscription(team.id, {
+      stripeSubscriptionId: null,
+      stripeProductId: null,
+      planName: null,
+      subscriptionStatus: 'canceled'
+    });
+    await updateTeamPlanTier(team.id, null);
+    console.log(`Subscription scheduled for cancellation for team ${team.id}, cleared plan`);
+  } else if (status === 'active' || status === 'trialing') {
+    // Active subscription - update plan details
     const plan = subscription.items.data[0]?.plan;
     const productId = typeof plan?.product === 'string' 
       ? plan.product 
@@ -181,13 +252,7 @@ export async function handleSubscriptionChange(
         await updateTeamPlanTier(team.id, tier);
       }
     }
-  } else if (status === 'canceled' || status === 'unpaid') {
-    await updateTeamSubscription(team.id, {
-      stripeSubscriptionId: null,
-      stripeProductId: null,
-      planName: null,
-      subscriptionStatus: status
-    });
+    console.log(`Subscription active for team ${team.id}, plan: ${product?.name}`);
   }
 }
 
