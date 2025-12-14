@@ -51,6 +51,25 @@ export type CreateVariantGenerationGeminiInput = CreateVariantGenerationInput & 
   productCategory: string;
 };
 
+export type CreateVariantEditGeminiInput = {
+  teamId: number;
+  productId: number;
+  variantId: number;
+  schemaKey: string; // edit.v1
+  targetSetId?: number | null;
+  input: {
+    base_image_url: string;
+    reference_image_url?: string | null;
+    edit_instructions?: string;
+    base_label?: string;
+    output_label?: string;
+  };
+  prompt?: string | null;
+  requestOrigin: string;
+  productTitle: string;
+  productCategory: string;
+};
+
 function resolveUrl(origin: string, maybeRelative: string) {
   if (!maybeRelative) return maybeRelative;
   if (maybeRelative.startsWith('http://') || maybeRelative.startsWith('https://')) return maybeRelative;
@@ -320,7 +339,7 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
         mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : mimeType === 'image/png' ? 'png' : 'png';
 
       const pathname = `team-${input.teamId}/variant-${input.variantId}/generations/${gen.id}/${idx + 1}.${ext}`;
-      const blob = new Blob([bytes], { type: mimeType });
+      const blob = new Blob([Buffer.from(bytes)], { type: mimeType });
       const putRes = await put(pathname, blob, {
         access: 'public',
         contentType: mimeType,
@@ -371,6 +390,184 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
     return { generation: updatedGen ?? gen, images: createdImages, folderId: folder.id };
   } catch (err: any) {
     const message = err?.message ? String(err.message).slice(0, 500) : 'Generation failed';
+    await db
+      .update(variantGenerations)
+      .set({ status: 'failed', errorMessage: message, updatedAt: new Date() })
+      .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, gen.id)));
+    throw err;
+  }
+}
+
+/**
+ * Edit flow: base image + optional reference image + instructions -> 1 output.
+ */
+export async function createVariantEditWithGeminiOutput(input: CreateVariantEditGeminiInput) {
+  const now = new Date();
+
+  // Validate variant/product belong to team and aren't deleted.
+  const variant = await db.query.productVariants.findFirst({
+    where: and(
+      eq(productVariants.teamId, input.teamId),
+      eq(productVariants.productId, input.productId),
+      eq(productVariants.id, input.variantId),
+      isNull(productVariants.deletedAt)
+    ),
+    columns: { id: true },
+  });
+  if (!variant) throw new Error('Variant not found');
+
+  const product = await db.query.products.findFirst({
+    where: and(eq(products.teamId, input.teamId), eq(products.id, input.productId), isNull(products.deletedAt)),
+    columns: { id: true },
+  });
+  if (!product) throw new Error('Product not found');
+
+  const [gen] = await db
+    .insert(variantGenerations)
+    .values({
+      teamId: input.teamId,
+      variantId: input.variantId,
+      schemaKey: input.schemaKey,
+      input: input.input ?? null,
+      numberOfVariations: 1,
+      provider: 'gemini',
+      status: 'generating',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+
+  if (!gen) throw new Error('Failed to create generation');
+
+  try {
+    // Choose target folder:
+    // - Prefer provided targetSetId (must belong to this team+variant and not deleted)
+    // - Else fallback to default folder (ensure it exists)
+    const targetFolder =
+      input.targetSetId
+        ? await db.query.sets.findFirst({
+            where: and(
+              eq(sets.teamId, input.teamId),
+              eq(sets.variantId, input.variantId),
+              eq(sets.id, input.targetSetId),
+              isNull(sets.deletedAt)
+            ),
+          })
+        : null;
+
+    const defaultFolder = await db.query.sets.findFirst({
+      where: and(
+        eq(sets.teamId, input.teamId),
+        eq(sets.variantId, input.variantId),
+        eq(sets.isDefault, true),
+        isNull(sets.deletedAt)
+      ),
+    });
+
+    const ensuredDefault =
+      defaultFolder ??
+      (await db
+        .insert(sets)
+        .values({
+          teamId: input.teamId,
+          scopeType: 'variant',
+          productId: input.productId,
+          variantId: input.variantId,
+          isDefault: true,
+          name: 'Default',
+          description: 'All generations (auto-created)',
+          createdByUserId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null));
+
+    const folder = targetFolder ?? ensuredDefault;
+
+    if (!folder) throw new Error('Failed to ensure default folder');
+
+    const baseUrl = resolveUrl(input.requestOrigin, String(input.input.base_image_url));
+    const base = await fetchAsBytes(baseUrl);
+
+    const refUrlRaw = input.input.reference_image_url?.trim?.() ? String(input.input.reference_image_url) : '';
+    const refUrl = refUrlRaw ? resolveUrl(input.requestOrigin, refUrlRaw) : '';
+    const ref = refUrl ? await fetchAsBytes(refUrl) : null;
+
+    const instructions = (input.input.edit_instructions ?? input.prompt ?? '').trim();
+    const prompt =
+      `You are editing a product image for \"${input.productTitle}\" (Category: ${input.productCategory}). ` +
+      `Make the requested edits to the base image.` +
+      (ref ? ' Use the second image as a reference for style/composition.' : '') +
+      (instructions ? ` Instructions: ${instructions}` : '');
+
+    const result: any = await generateText({
+      model: 'google/gemini-2.5-flash-image',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image', image: base.bytes, mimeType: base.mimeType },
+            ...(ref ? [{ type: 'image', image: ref.bytes, mimeType: ref.mimeType }] : []),
+          ],
+        },
+      ],
+    } as any);
+
+    const files: any[] = Array.isArray(result?.files) ? result.files : [];
+    const firstImage = files.find((f) => String(f?.mediaType ?? f?.mimeType ?? '').startsWith('image/')) ?? files[0];
+    if (!firstImage) throw new Error('Gemini returned no files');
+
+    const { bytes, mimeType } = coerceResultFileToBytes(firstImage);
+    const ext =
+      mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : mimeType === 'image/png' ? 'png' : 'png';
+
+    const pathname = `team-${input.teamId}/variant-${input.variantId}/edits/${gen.id}/1.${ext}`;
+    const blob = new Blob([Buffer.from(bytes)], { type: mimeType });
+    const putRes = await put(pathname, blob, {
+      access: 'public',
+      contentType: mimeType,
+      addRandomSuffix: false,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    } as any);
+
+    const [createdImage] = await db
+      .insert(variantImages)
+      .values({
+        teamId: input.teamId,
+        variantId: input.variantId,
+        generationId: gen.id,
+        status: 'ready',
+        url: putRes.url,
+        prompt: instructions || null,
+        schemaKey: input.schemaKey,
+        input: input.input ?? null,
+        createdAt: new Date(),
+      })
+      .returning();
+
+    if (!createdImage) throw new Error('Failed to create variant image');
+
+    await db.insert(setItems).values({
+      teamId: input.teamId,
+      setId: folder.id,
+      itemType: 'variant_image',
+      itemId: createdImage.id,
+      sortOrder: 0,
+      addedByUserId: null,
+      createdAt: new Date(),
+    });
+
+    const [updatedGen] = await db
+      .update(variantGenerations)
+      .set({ status: 'ready', updatedAt: new Date() })
+      .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, gen.id)))
+      .returning();
+
+    return { generation: updatedGen ?? gen, image: createdImage, folderId: folder.id };
+  } catch (err: any) {
+    const message = err?.message ? String(err.message).slice(0, 500) : 'Edit failed';
     await db
       .update(variantGenerations)
       .set({ status: 'failed', errorMessage: message, updatedAt: new Date() })

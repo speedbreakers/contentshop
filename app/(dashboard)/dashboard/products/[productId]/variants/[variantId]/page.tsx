@@ -102,6 +102,7 @@ export default function VariantAssetsPage() {
   const [viewAllOpen, setViewAllOpen] = useState(false);
   const [lightbox, setLightbox] = useState<{ kind: 'asset' | 'setItem'; id: number; setId?: number } | null>(null);
   const [editInstructions, setEditInstructions] = useState('');
+  const [editReferenceImageUrl, setEditReferenceImageUrl] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
 
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -181,11 +182,15 @@ export default function VariantAssetsPage() {
               .map((it: any) => {
                 const img = it.data;
                 const createdAt = String(img.createdAt ?? it.createdAt ?? new Date().toISOString());
+                const outputLabel =
+                  img?.input && typeof img.input === 'object' && (img.input as any).output_label
+                    ? String((img.input as any).output_label)
+                    : null;
                 return {
                   id: Number(img.id),
                   setId: Number(it.setId ?? s.id),
                   createdAt,
-                  label: img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`,
+                  label: outputLabel ?? (img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`),
                   status: (img.status as any) ?? 'ready',
                   url: String(img.url),
                   prompt: String(img.prompt ?? ''),
@@ -429,51 +434,99 @@ export default function VariantAssetsPage() {
 
   function openLightbox(assetId: number) {
     setEditInstructions('');
+    setEditReferenceImageUrl('');
     setLightbox({ kind: 'asset', id: assetId });
   }
 
-  function mockGenerateFromEdit() {
-    // This should create a new generated item under the default folder (not current assets).
+  async function generateFromEdit() {
     if (!defaultSetId) {
       setSyncMessage('Default folder is missing (unexpected).');
       return;
     }
     const base = lightboxSetItem ?? lightboxAsset;
     if (!base) return;
+
     setIsGenerating(true);
-    const id = Math.floor(Date.now() / 1000);
+    setSyncMessage(null);
+
     const now = new Date().toISOString();
-    const label = editInstructions.trim()
-      ? 'edited-variation'
-      : 'variation';
+    const draftId = -Date.now();
+    const baseLabel =
+      lightboxSetItem?.label?.trim() ? lightboxSetItem.label.trim() : lightboxAsset ? 'asset' : 'image';
+    const label = `edited-${baseLabel}`;
+    const targetFolderId =
+      lightbox?.kind === 'setItem' ? (lightbox.setId ?? defaultSetId) : defaultSetId;
     const draft: FakeSetItem = {
-      id,
-      setId: defaultSetId,
+      id: draftId,
+      setId: targetFolderId,
       createdAt: now,
       label,
       status: 'generating',
-      url: placeholderUrl('Generating…', id, 640),
-      prompt: editInstructions.trim() || 'Generate a variation based on the selected image.',
+      url: placeholderUrl('Generating…', Math.abs(draftId), 640),
+      prompt: editInstructions.trim(),
+      schemaKey: 'edit.v1',
+      input: {
+        base_image_url: base.url,
+        reference_image_url: editReferenceImageUrl.trim() || null,
+        edit_instructions: editInstructions.trim(),
+      },
       isSelected: false,
     };
 
     setItemsBySetId((prev) => ({
       ...prev,
-      [defaultSetId]: [draft, ...(prev[defaultSetId] ?? [])],
+      [targetFolderId]: [draft, ...(prev[targetFolderId] ?? [])],
     }));
 
-    setTimeout(() => {
+    try {
+      const res = await fetch(`/api/products/${productId}/variants/${variantId}/edits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base_image_url: base.url,
+          base_label: baseLabel,
+          edit_instructions: editInstructions.trim(),
+          reference_image_url: editReferenceImageUrl.trim() || null,
+          target_set_id: lightbox?.kind === 'setItem' ? (lightbox.setId ?? null) : null,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error ? String(data.error) : `Edit failed (HTTP ${res.status})`);
+      }
+
+      const img = data?.image;
+      if (!img) throw new Error('Edit failed (missing image)');
+
+      const folderId: number = Number(data?.folderId ?? targetFolderId);
+      const created: FakeSetItem = {
+        id: Number(img.id),
+        setId: folderId,
+        createdAt: String(img.createdAt ?? new Date().toISOString()),
+        label,
+        status: (img.status as any) ?? 'ready',
+        url: String(img.url),
+        prompt: String(img.prompt ?? editInstructions.trim() ?? ''),
+        schemaKey: String(img.schemaKey ?? 'edit.v1'),
+        input: img.input ?? draft.input,
+        isSelected: false,
+      };
+
       setItemsBySetId((prev) => ({
         ...prev,
-        [defaultSetId]: (prev[defaultSetId] ?? []).map((i) =>
-          i.id === id
-            ? { ...i, status: 'ready', url: placeholderUrl(label, id, 640) }
-            : i
-        ),
+        [folderId]: [created, ...(prev[folderId] ?? []).filter((i) => i.id !== draftId)],
       }));
+
       setIsGenerating(false);
       setLightbox(null);
-    }, 900);
+    } catch (err: any) {
+      setItemsBySetId((prev) => ({
+        ...prev,
+        [targetFolderId]: (prev[targetFolderId] ?? []).filter((i) => i.id !== draftId),
+      }));
+      setIsGenerating(false);
+      setSyncMessage(err?.message ? String(err.message) : 'Edit failed.');
+    }
   }
 
   function mockSyncFolder(setId: number) {
@@ -512,11 +565,15 @@ export default function VariantAssetsPage() {
         .map((it: any) => {
           const img = it.data;
           const createdAt = String(img.createdAt ?? it.createdAt ?? new Date().toISOString());
+          const outputLabel =
+            img?.input && typeof img.input === 'object' && (img.input as any).output_label
+              ? String((img.input as any).output_label)
+              : null;
           return {
             id: Number(img.id),
             setId: Number(it.setId ?? setId),
             createdAt,
-            label: img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`,
+            label: outputLabel ?? (img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`),
             status: (img.status as any) ?? 'ready',
             url: String(img.url),
             prompt: String(img.prompt ?? ''),
@@ -947,6 +1004,7 @@ export default function VariantAssetsPage() {
                             type="button"
                             onClick={() => {
                               setEditInstructions('');
+                              setEditReferenceImageUrl('');
                               setLightbox({ kind: 'setItem', id: i.id, setId: i.setId });
                             }}
                             className="flex items-center gap-3 min-w-0 text-left"
@@ -1383,9 +1441,16 @@ export default function VariantAssetsPage() {
                     className="min-h-[140px] resize-none"
                   />
                   <FieldDescription>
-                    Submitting will generate a new variation (mock) based on this asset.
+                    Optionally add a reference image below to guide the edit.
                   </FieldDescription>
                 </Field>
+                <AssetPickerField
+                  label="Reference image (optional)"
+                  value={editReferenceImageUrl}
+                  onChange={setEditReferenceImageUrl}
+                  kind="product"
+                  description="Upload/select a reference image to guide the output. Optional."
+                />
               </FieldGroup>
 
               <div className="flex gap-2 justify-end">
@@ -1394,10 +1459,10 @@ export default function VariantAssetsPage() {
                 </Button>
                 <Button
                   className="bg-orange-500 hover:bg-orange-600 text-white"
-                  onClick={mockGenerateFromEdit}
+                  onClick={generateFromEdit}
                   disabled={isGenerating}
                 >
-                  Generate variation
+                  {isGenerating ? 'Generating…' : 'Generate variation'}
                 </Button>
               </div>
             </div>
