@@ -177,9 +177,9 @@ export default function ProductsPage() {
 
     const created: ApiProduct | null = data?.product
       ? {
-          ...data.product,
-          variantsCount: 1,
-        }
+        ...data.product,
+        variantsCount: 1,
+      }
       : null;
 
     if (created) {
@@ -392,7 +392,6 @@ export default function ProductsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[60px]"></TableHead>
                 <TableHead>Product</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Variants</TableHead>
@@ -429,7 +428,7 @@ export default function ProductsPage() {
                       }
                     }}
                   >
-                    <TableCell>
+                    <TableCell className="flex items-center gap-4">
                       <div className="h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
                         {p.imageUrl ? (
                           <img
@@ -441,11 +440,11 @@ export default function ProductsPage() {
                           <ImageIcon className="h-4 w-4 text-muted-foreground" />
                         )}
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">{p.title}</div>
-                      <div className="text-xs text-muted-foreground capitalize">
-                        {p.category}
+                      <div>
+                        <div className="font-medium">{p.title}</div>
+                        <div className="text-xs text-muted-foreground capitalize">
+                          {p.category}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -535,20 +534,20 @@ export default function ProductsPage() {
           <DialogHeader>
             <DialogTitle>Link Shopify product</DialogTitle>
           </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="link-shopify-product-gid">
-              Shopify Product GID
-            </FieldLabel>
-            <Input
-              id="link-shopify-product-gid"
-              value={linkGid}
-              onChange={(e) => setLinkGid(e.target.value)}
-              placeholder="gid://shopify/Product/..."
-            />
-            <FieldDescription>Paste a Shopify GraphQL product gid.</FieldDescription>
-          </Field>
-        </FieldGroup>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="link-shopify-product-gid">
+                Shopify Product GID
+              </FieldLabel>
+              <Input
+                id="link-shopify-product-gid"
+                value={linkGid}
+                onChange={(e) => setLinkGid(e.target.value)}
+                placeholder="gid://shopify/Product/..."
+              />
+              <FieldDescription>Paste a Shopify GraphQL product gid.</FieldDescription>
+            </Field>
+          </FieldGroup>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLinkProductId(null)}>
               Cancel
