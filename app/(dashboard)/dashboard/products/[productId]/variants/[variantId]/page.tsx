@@ -1035,13 +1035,6 @@ export default function VariantAssetsPage() {
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem
                                   onSelect={() => {
-                                    setDetails({ setId: i.setId, itemId: i.id });
-                                  }}
-                                >
-                                  View details
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() => {
                                     setRenameItem({ setId: i.setId, itemId: i.id });
                                     setRenameItemName(i.label);
                                   }}
@@ -1123,7 +1116,7 @@ export default function VariantAssetsPage() {
 
       {/* Generate dialog */}
       <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
-        <DialogContent className="sm:max-w-6xl">
+        <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Generate new outputs
@@ -1247,7 +1240,7 @@ export default function VariantAssetsPage() {
           if (!open) setDetails(null);
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Generation details</DialogTitle>
           </DialogHeader>
@@ -1256,8 +1249,10 @@ export default function VariantAssetsPage() {
             <div className="text-sm text-muted-foreground">Item not found.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-md border overflow-hidden">
-                <img src={detailsItem.url} alt="" className="w-full h-full object-cover" />
+              <div className="rounded-md border overflow-hidden bg-muted">
+                <div className="aspect-square">
+                  <img src={detailsItem.url} alt="" className="w-full h-full object-contain" />
+                </div>
               </div>
               <div className="space-y-3">
                 <div className="space-y-1">
@@ -1273,19 +1268,18 @@ export default function VariantAssetsPage() {
                   </div>
                 </div>
 
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel>Prompt</FieldLabel>
-                    <Textarea
-                      value={detailsItem.prompt}
-                      readOnly
-                      className="min-h-[160px] resize-none"
-                    />
-                    <FieldDescription>
-                      This is mock data for now; later this will come from stored generation metadata.
-                    </FieldDescription>
-                  </Field>
-                </FieldGroup>
+                {detailsItem.prompt ? (
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel>Prompt</FieldLabel>
+                      <Textarea
+                        value={detailsItem.prompt}
+                        readOnly
+                        className="min-h-[160px] resize-none"
+                      />
+                    </Field>
+                  </FieldGroup>
+                ) : null}
 
                 {detailsItem.schemaKey || detailsItem.input ? (
                   <FieldGroup>
@@ -1295,37 +1289,18 @@ export default function VariantAssetsPage() {
                         <Input value={detailsItem.schemaKey} readOnly />
                       </Field>
                     ) : null}
-                    {detailsItem.input ? (
-                      <Field>
-                        <FieldLabel>Input</FieldLabel>
-                        <Textarea
-                          value={JSON.stringify(detailsItem.input, null, 2)}
-                          readOnly
-                          className="min-h-[180px] resize-none font-mono text-xs"
-                        />
-                      </Field>
-                    ) : null}
                   </FieldGroup>
                 ) : null}
 
                 <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setDetails(null)}>
+                    Close
+                  </Button>
                   <Button
-                    variant="outline"
                     onClick={() => downloadImage(detailsItem)}
                     disabled={detailsItem.status !== 'ready'}
                   >
                     Download
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      await copyToClipboard(detailsItem.prompt);
-                    }}
-                  >
-                    Copy prompt
-                  </Button>
-                  <Button variant="outline" onClick={() => setDetails(null)}>
-                    Close
                   </Button>
                 </div>
               </div>
@@ -1341,89 +1316,57 @@ export default function VariantAssetsPage() {
           if (!open) setLightbox(null);
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Asset</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-md border overflow-hidden">
-              {lightboxSetItem ? (
-                <img src={lightboxSetItem.url} alt="" className="w-full h-full object-cover" />
-              ) : lightboxAsset ? (
-                <img src={lightboxAsset.url} alt="" className="w-full h-full object-cover" />
-              ) : null}
-              <div className="p-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {lightboxSetItem ? (
-                    <>
-                      <Badge variant={lightboxSetItem.status === 'ready' ? 'secondary' : 'outline'}>
-                        {lightboxSetItem.status}
-                      </Badge>
-                      <Badge variant="outline">folder</Badge>
-                    </>
-                  ) : lightboxAsset ? (
-                    <>
-                      <Badge variant={lightboxAsset.status === 'ready' ? 'secondary' : 'outline'}>
-                        {lightboxAsset.status}
-                      </Badge>
-                      <Badge variant="outline">{lightboxAsset.source}</Badge>
-                    </>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2">
+            <div className="rounded-md border overflow-hidden bg-muted">
+              <div className="aspect-square relative">
+                {lightboxSetItem ? (
+                  <img src={lightboxSetItem.url} alt="" className="w-full h-full object-contain" />
+                ) : lightboxAsset ? (
+                  <img src={lightboxAsset.url} alt="" className="w-full h-full object-contain" />
+                ) : null}
+
+                <div className="absolute bottom-2 flex justify-between w-full px-4">
+                  <div className="flex items-center gap-2">
+                    {lightboxSetItem ? (
+                      <>
+                        <Badge variant={lightboxSetItem.status === 'ready' ? 'secondary' : 'outline'}>
+                          {lightboxSetItem.status}
+                        </Badge>
+                        <Badge variant="outline">{formatWhen(lightboxSetItem.createdAt)}</Badge>
+                      </>
+                    ) : lightboxAsset ? (
+                      <>
+                        <Badge variant={lightboxAsset.status === 'ready' ? 'secondary' : 'outline'}>
+                          {lightboxAsset.status}
+                        </Badge>
+                        <Badge variant="outline">{lightboxAsset.source}</Badge>
+                      </>
+                    ) : null}
+                  </div>
                   <Button
                     size="sm"
-                    variant={
-                      lightboxSetItem?.isSelected || lightboxAsset?.isSelected
-                        ? 'default'
-                        : 'outline'
-                    }
-                    onClick={() => {
-                      if (lightboxSetItem) {
-                        toggleSetItemSelected(lightboxSetItem.setId, lightboxSetItem.id);
-                        return;
-                      }
-                      if (lightboxAsset) {
-                        toggleSelected(lightboxAsset.id);
-                      }
-                    }}
-                    disabled={!lightboxSetItem && !lightboxAsset}
-                  >
-                    {lightboxSetItem?.isSelected || lightboxAsset?.isSelected
-                      ? 'Selected'
-                      : 'Select'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
+                    className="h-8"
                     onClick={async () => {
                       if (lightboxSetItem) {
-                        await copyToClipboard(lightboxSetItem.url);
+                        await downloadImage(lightboxSetItem);
                         return;
                       }
                       if (lightboxAsset) {
-                        await copyToClipboard(lightboxAsset.url);
+                        const file = `asset-${lightboxAsset.id}.png`;
+                        await downloadFromUrl(lightboxAsset.url, file);
                       }
                     }}
-                    disabled={!lightboxSetItem && !lightboxAsset}
+                    disabled={
+                      (!lightboxSetItem && !lightboxAsset) ||
+                      (lightboxSetItem ? lightboxSetItem.status !== 'ready' : lightboxAsset?.status !== 'ready')
+                    }
+                    title="Download"
                   >
-                    Copy URL
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => {
-                      if (lightboxSetItem) {
-                        setDeleteId({ kind: 'setItem', id: lightboxSetItem.id, setId: lightboxSetItem.setId });
-                        return;
-                      }
-                      if (lightboxAsset) {
-                        setDeleteId({ kind: 'asset', id: lightboxAsset.id });
-                      }
-                    }}
-                    disabled={!lightboxSetItem && !lightboxAsset}
-                  >
-                    Delete
+                    Download
                   </Button>
                 </div>
               </div>
@@ -1462,7 +1405,7 @@ export default function VariantAssetsPage() {
                   onClick={generateFromEdit}
                   disabled={isGenerating}
                 >
-                  {isGenerating ? 'Generating…' : 'Generate variation'}
+                  {isGenerating ? 'Generating…' : 'Edit image'}
                 </Button>
               </div>
             </div>
