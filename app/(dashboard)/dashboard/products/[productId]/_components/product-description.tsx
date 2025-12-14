@@ -25,6 +25,7 @@ import { getMockProductDescription } from '@/lib/fake/product-description';
 import type { FakeGeneratedDescriptionVersion } from '@/lib/fake/product-description';
 import { GenerateDescriptionDialog } from './generate-description-dialog';
 import { ViewDescriptionDialog } from './view-description-dialog';
+import { EllipsisVerticalIcon } from 'lucide-react';
 
 async function copyToClipboard(text: string) {
   try {
@@ -262,7 +263,7 @@ export function ProductDescription(props: {
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button size="sm" variant="outline">
-                            Menu
+                            <EllipsisVerticalIcon className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">

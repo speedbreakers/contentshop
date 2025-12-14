@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +31,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { LinkShopifyDialog } from './link-shopify-dialog';
+import { EllipsisVerticalIcon } from 'lucide-react';
 
 function optionSummary(product: FakeProduct, v: FakeVariant) {
   if (!v.optionValues.length) return '—';
@@ -42,6 +45,7 @@ export function VariantsTable(props: {
   product: FakeProduct;
   onChange: (next: FakeProduct) => void;
 }) {
+  const router = useRouter();
   const variants = useMemo(
     () => [...props.product.variants].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [props.product.variants]
@@ -89,88 +93,109 @@ export function VariantsTable(props: {
 
   return (
     <div className="space-y-3">
-      <div>
-        <div className="font-medium">Variants</div>
-        <div className="text-sm text-muted-foreground">
-          Default variant is required. Reassign default before removing it.
-        </div>
-      </div>
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Variant</TableHead>
-            <TableHead>Options</TableHead>
-            <TableHead>SKU</TableHead>
-            <TableHead>Shopify</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-
-        <TableBody>
-          {variants.map((v) => {
-            const isDefault = v.id === props.product.defaultVariantId;
-            const isLast = props.product.variants.length <= 1;
-            const canDelete = !isDefault && !isLast;
-
-            return (
-              <TableRow key={v.id}>
-                <TableCell>
-                  <div className="font-medium">{v.title}</div>
-                  <div className="text-xs text-muted-foreground">#{v.id}</div>
-                  {isDefault ? <Badge className="mt-1">Default</Badge> : null}
-                </TableCell>
-
-                <TableCell className="text-sm">{optionSummary(props.product, v)}</TableCell>
-                <TableCell className="text-sm">{v.sku ?? '—'}</TableCell>
-                <TableCell>
-                  {v.shopifyVariantGid ? <Badge>Linked</Badge> : <Badge variant="outline">Not linked</Badge>}
-                </TableCell>
-
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="outline">
-                        Menu
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link
-                          href={`/dashboard/products/${props.product.id}/variants/${v.id}`}
-                        >
-                          Manage assets
-                        </Link>
-                      </DropdownMenuItem>
-                      {!isDefault ? (
-                        <DropdownMenuItem onClick={() => setDefault(v.id)}>
-                          Set as default
-                        </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem onClick={() => setLinkVariantId(v.id)}>
-                        {v.shopifyVariantGid ? 'Change Shopify link' : 'Link Shopify variant'}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setDeleteVariantId(v.id)}
-                        disabled={!canDelete}
-                        title={
-                          isDefault
-                            ? 'Cannot delete the default variant. Reassign default first.'
-                            : isLast
-                              ? 'A product must have at least one variant.'
-                              : undefined
-                        }
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+      <Card>
+        <CardHeader>
+          <CardTitle>Variants</CardTitle>
+          <div className="text-sm text-muted-foreground">
+            Default variant is required. Reassign default before removing it.
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Variant</TableHead>
+                <TableHead>Options</TableHead>
+                <TableHead>SKU</TableHead>
+                <TableHead>Shopify</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+            </TableHeader>
+
+            <TableBody>
+              {variants.map((v) => {
+                const isDefault = v.id === props.product.defaultVariantId;
+                const isLast = props.product.variants.length <= 1;
+                const canDelete = !isDefault && !isLast;
+
+                return (
+                  <TableRow
+                    key={v.id}
+                    role="link"
+                    tabIndex={0}
+                    className="cursor-pointer hover:bg-muted/40"
+                    onClick={() =>
+                      router.push(`/dashboard/products/${props.product.id}/variants/${v.id}`)
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/dashboard/products/${props.product.id}/variants/${v.id}`);
+                      }
+                    }}
+                  >
+                    <TableCell>
+                      <div className="font-medium">{v.title}</div>
+                      <div className="text-xs text-muted-foreground">#{v.id}</div>
+                      {isDefault ? <Badge className="mt-1">Default</Badge> : null}
+                    </TableCell>
+
+                    <TableCell className="text-sm">{optionSummary(props.product, v)}</TableCell>
+                    <TableCell className="text-sm">{v.sku ?? '—'}</TableCell>
+                    <TableCell>
+                      {v.shopifyVariantGid ? <Badge>Linked</Badge> : <Badge variant="outline">Not linked</Badge>}
+                    </TableCell>
+
+                    <TableCell
+                      className="text-right"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="outline">
+                            <EllipsisVerticalIcon className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/dashboard/products/${props.product.id}/variants/${v.id}`}
+                            >
+                              Manage assets
+                            </Link>
+                          </DropdownMenuItem>
+                          {!isDefault ? (
+                            <DropdownMenuItem onClick={() => setDefault(v.id)}>
+                              Set as default
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem onClick={() => setLinkVariantId(v.id)}>
+                            {v.shopifyVariantGid ? 'Change Shopify link' : 'Link Shopify variant'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setDeleteVariantId(v.id)}
+                            disabled={!canDelete}
+                            title={
+                              isDefault
+                                ? 'Cannot delete the default variant. Reassign default first.'
+                                : isLast
+                                  ? 'A product must have at least one variant.'
+                                  : undefined
+                            }
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <LinkShopifyDialog
         open={linkVariantId !== null}

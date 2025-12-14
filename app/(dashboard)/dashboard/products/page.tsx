@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,6 +47,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { fakeProducts, FakeProduct } from '@/lib/fake/products';
+import { EllipsisVerticalIcon } from 'lucide-react';
 
 function statusBadgeVariant(status: string) {
   if (status === 'active') return 'default';
@@ -54,6 +56,7 @@ function statusBadgeVariant(status: string) {
 }
 
 export default function ProductsPage() {
+  const router = useRouter();
   const [items, setItems] = useState<FakeProduct[]>(() =>
     structuredClone(fakeProducts)
   );
@@ -288,7 +291,19 @@ export default function ProductsPage() {
                 </TableRow>
               ) : (
                 filtered.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow
+                    key={p.id}
+                    role="link"
+                    tabIndex={0}
+                    className="cursor-pointer hover:bg-muted/40"
+                    onClick={() => router.push(`/dashboard/products/${p.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/dashboard/products/${p.id}`);
+                      }
+                    }}
+                  >
                     <TableCell>
                       <div className="font-medium">{p.title}</div>
                       <div className="text-xs text-muted-foreground">
@@ -312,11 +327,15 @@ export default function ProductsPage() {
                       )}
                     </TableCell>
 
-                    <TableCell className="text-right">
+                    <TableCell
+                      className="text-right"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="outline" size="sm">
-                            Menu
+                            <EllipsisVerticalIcon className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
