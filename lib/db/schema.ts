@@ -73,6 +73,37 @@ export const invitations = pgTable('invitations', {
 });
 
 /**
+ * Uploaded files (team-owned)
+ * - Source of truth for "previously uploaded files" in asset pickers.
+ * - Stores Vercel Blob info (public blobUrl + pathname), but clients should use signed app URLs.
+ */
+export const uploadedFiles = pgTable(
+  'uploaded_files',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+
+    kind: varchar('kind', { length: 30 }).notNull(), // garment|product|model|background
+
+    // Vercel Blob result fields
+    pathname: text('pathname').notNull(),
+    blobUrl: text('blob_url').notNull(),
+
+    originalName: varchar('original_name', { length: 255 }),
+    contentType: varchar('content_type', { length: 100 }),
+    size: integer('size'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('uploaded_files_team_id_idx').on(t.teamId),
+    teamKindIdx: index('uploaded_files_team_kind_idx').on(t.teamId, t.kind),
+  })
+);
+
+/**
  * Products & Variants (team-owned)
  * - All generated assets are variant-scoped; product-level content uses default variant.
  */
@@ -365,6 +396,7 @@ export const teamsRelations = relations(teams, ({ many }) => ({
   activityLogs: many(activityLogs),
   invitations: many(invitations),
   products: many(products),
+  uploadedFiles: many(uploadedFiles),
   sets: many(sets),
 }));
 
@@ -403,6 +435,13 @@ export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
   user: one(users, {
     fields: [activityLogs.userId],
     references: [users.id],
+  }),
+}));
+
+export const uploadedFilesRelations = relations(uploadedFiles, ({ one }) => ({
+  team: one(teams, {
+    fields: [uploadedFiles.teamId],
+    references: [teams.id],
   }),
 }));
 
@@ -536,6 +575,8 @@ export type TeamMember = typeof teamMembers.$inferSelect;
 export type NewTeamMember = typeof teamMembers.$inferInsert;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type NewActivityLog = typeof activityLogs.$inferInsert;
+export type UploadedFile = typeof uploadedFiles.$inferSelect;
+export type NewUploadedFile = typeof uploadedFiles.$inferInsert;
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
 export type Product = typeof products.$inferSelect;

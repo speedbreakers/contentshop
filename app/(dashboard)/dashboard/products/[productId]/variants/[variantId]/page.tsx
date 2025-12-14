@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { AssetPickerField } from '@/components/asset-picker';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -145,7 +146,7 @@ export default function VariantAssetsPage() {
   const [genGarmentRight, setGenGarmentRight] = useState('');
 
   // Non-apparel inputs (one URL per line)
-  const [genProductImagesText, setGenProductImagesText] = useState('');
+  const [genProductImages, setGenProductImages] = useState<string[]>([]);
 
   const lightboxAsset =
     lightbox?.kind === 'asset' ? assets.find((a) => a.id === lightbox.id) ?? null : null;
@@ -263,10 +264,7 @@ export default function VariantAssetsPage() {
     }
     const n = Math.max(1, Math.min(10, Math.floor(genNumberOfVariations || 1)));
     const schemaKey = productCategory === 'apparel' ? 'apparel.v1' : 'non_apparel.v1';
-    const nonApparelImages = genProductImagesText
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const nonApparelImages = genProductImages.map((s) => s.trim()).filter(Boolean);
 
     if (productCategory === 'apparel' && !genGarmentFront.trim()) {
       setSyncMessage('Garment front image URL is required for apparel generation.');
@@ -934,78 +932,106 @@ export default function VariantAssetsPage() {
 
             {productCategory === 'apparel' ? (
               <>
-                <Field>
-                  <FieldLabel htmlFor="gen-garment-front">Garment front URL *</FieldLabel>
-                  <Input
-                    id="gen-garment-front"
-                    value={genGarmentFront}
-                    onChange={(e) => setGenGarmentFront(e.target.value)}
-                    placeholder="https://…"
-                    required
-                  />
-                </Field>
+                <AssetPickerField
+                  label="Garment front *"
+                  value={genGarmentFront}
+                  onChange={setGenGarmentFront}
+                  kind="garment"
+                  description="Upload or choose a previously uploaded garment image."
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="gen-garment-back">Garment back URL</FieldLabel>
-                    <Input
-                      id="gen-garment-back"
-                      value={genGarmentBack}
-                      onChange={(e) => setGenGarmentBack(e.target.value)}
-                      placeholder="https://…"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="gen-garment-left">Garment left URL</FieldLabel>
-                    <Input
-                      id="gen-garment-left"
-                      value={genGarmentLeft}
-                      onChange={(e) => setGenGarmentLeft(e.target.value)}
-                      placeholder="https://…"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="gen-garment-right">Garment right URL</FieldLabel>
-                    <Input
-                      id="gen-garment-right"
-                      value={genGarmentRight}
-                      onChange={(e) => setGenGarmentRight(e.target.value)}
-                      placeholder="https://…"
-                    />
-                  </Field>
+                  <AssetPickerField
+                    label="Garment back"
+                    value={genGarmentBack}
+                    onChange={setGenGarmentBack}
+                    kind="garment"
+                  />
+                  <AssetPickerField
+                    label="Garment left"
+                    value={genGarmentLeft}
+                    onChange={setGenGarmentLeft}
+                    kind="garment"
+                  />
+                  <AssetPickerField
+                    label="Garment right"
+                    value={genGarmentRight}
+                    onChange={setGenGarmentRight}
+                    kind="garment"
+                  />
                 </div>
               </>
             ) : (
-              <Field>
-                <FieldLabel htmlFor="gen-product-images">Product image URLs (one per line) *</FieldLabel>
-                <Textarea
-                  id="gen-product-images"
-                  value={genProductImagesText}
-                  onChange={(e) => setGenProductImagesText(e.target.value)}
-                  placeholder={`https://…\nhttps://…`}
-                  className="min-h-[120px] resize-none"
-                />
-              </Field>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium">Product images *</div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      // Add by opening picker into a temporary slot (reuse model picker UX via prompt).
+                      // We keep this simple: user chooses one image at a time.
+                      setGenProductImages((prev) => [...prev, '']);
+                    }}
+                  >
+                    Add image
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Upload or choose previously uploaded product images. Templates are not available for product images.
+                </div>
+                {genProductImages.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No images added yet.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {genProductImages.map((url, idx) => (
+                      <div key={idx} className="flex items-end gap-2">
+                        <div className="flex-1">
+                          <AssetPickerField
+                            label={`Product image ${idx + 1}`}
+                            value={url}
+                            onChange={(next) =>
+                              setGenProductImages((prev) =>
+                                prev.map((v, i) => (i === idx ? next : v))
+                              )
+                            }
+                            kind="product"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={() =>
+                            setGenProductImages((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field>
-                <FieldLabel htmlFor="gen-model-url">Model image URL</FieldLabel>
-                <Input
-                  id="gen-model-url"
-                  value={genModelImageUrl}
-                  onChange={(e) => setGenModelImageUrl(e.target.value)}
-                  placeholder="https://…"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="gen-bg-url">Background image URL</FieldLabel>
-                <Input
-                  id="gen-bg-url"
-                  value={genBackgroundImageUrl}
-                  onChange={(e) => setGenBackgroundImageUrl(e.target.value)}
-                  placeholder="https://…"
-                />
-              </Field>
+              <AssetPickerField
+                label="Model image (optional)"
+                value={genModelImageUrl}
+                onChange={setGenModelImageUrl}
+                kind="model"
+                allowTemplates
+                templateKind="model"
+                description="Upload, select from your library, or pick a Content Shop template."
+              />
+              <AssetPickerField
+                label="Background image (optional)"
+                value={genBackgroundImageUrl}
+                onChange={setGenBackgroundImageUrl}
+                kind="background"
+                allowTemplates
+                templateKind="background"
+                description="Upload, select from your library, or pick a Content Shop template."
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
