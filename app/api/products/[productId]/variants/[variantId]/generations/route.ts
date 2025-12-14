@@ -59,7 +59,7 @@ export async function POST(
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json(
-      { error: parsed.error.errors[0]?.message ?? 'Invalid request' },
+      { error: parsed.error.issues[0]?.message ?? 'Invalid request' },
       { status: 400 }
     );
   }
@@ -71,7 +71,7 @@ export async function POST(
   const ok = unifiedInputSchema.safeParse(parsed.data.input);
   if (!ok.success) {
     return Response.json(
-      { error: ok.error.errors[0]?.message ?? 'Invalid input' },
+      { error: ok.error.issues[0]?.message ?? 'Invalid input' },
       { status: 400 }
     );
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,11 +27,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { fakeProducts } from '@/lib/fake/products';
-import { getMockVariantAssets } from '@/lib/fake/variant-assets';
+import type { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import type { FakeVariantAsset } from '@/lib/fake/variant-assets';
-import { getMockSets, type FakeSet } from '@/lib/fake/sets';
-import { getMockSetItems, type FakeSetItem } from '@/lib/fake/set-items';
+import type { FakeSet } from '@/lib/fake/sets';
+import type { FakeSetItem } from '@/lib/fake/set-items';
 
 function formatWhen(iso: string) {
   const d = new Date(iso);
@@ -89,29 +88,16 @@ export default function VariantAssetsPage() {
   const productId = Number(params.productId);
   const variantId = Number(params.variantId);
 
-  const product = useMemo(() => fakeProducts.find((p) => p.id === productId) ?? null, [productId]);
-  const variant = useMemo(
-    () => product?.variants.find((v) => v.id === variantId) ?? null,
-    [product, variantId]
-  );
+  const [product, setProduct] = useState<FakeProduct | null>(null);
+  const [variant, setVariant] = useState<FakeVariant | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const productCategory = product?.category ?? 'apparel';
 
-  const seed = useMemo(() => getMockVariantAssets(variantId), [variantId]);
-
-  const [assets, setAssets] = useState<FakeVariantAsset[]>(() => structuredClone(seed.assets));
-  const [sets, setSets] = useState<FakeSet[]>(() => getMockSets(variantId));
-  const [activeFolderId, setActiveFolderId] = useState<number | null>(() => {
-    const seeded = getMockSets(variantId);
-    return seeded.find((s) => s.isDefault)?.id ?? seeded[0]?.id ?? null;
-  });
-  const [itemsBySetId, setItemsBySetId] = useState<Record<number, FakeSetItem[]>>(() => {
-    const seeded = getMockSets(variantId);
-    const map: Record<number, FakeSetItem[]> = {};
-    for (const s of seeded) {
-      map[s.id] = getMockSetItems(s.id);
-    }
-    return map;
-  });
+  const [assets, setAssets] = useState<FakeVariantAsset[]>([]);
+  const [sets, setSets] = useState<FakeSet[]>([]);
+  const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
+  const [itemsBySetId, setItemsBySetId] = useState<Record<number, FakeSetItem[]>>({});
 
   const [viewAllOpen, setViewAllOpen] = useState(false);
   const [lightbox, setLightbox] = useState<{ kind: 'asset' | 'setItem'; id: number; setId?: number } | null>(null);
@@ -143,6 +129,94 @@ export default function VariantAssetsPage() {
 
   // Product images input (array of file URLs)
   const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '', '', '', '', '']);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const productRes = await fetch(`/api/products/${productId}`);
+        const productJson = await productRes.json().catch(() => null);
+        if (!productRes.ok) throw new Error(productJson?.error ?? `Failed to load product (HTTP ${productRes.status})`);
+        const p = productJson?.product;
+        if (!p) throw new Error('Product not found');
+
+        const mappedProduct: FakeProduct = {
+          id: Number(p.id),
+          title: String(p.title),
+          status: (p.status as any) ?? 'draft',
+          category: (p.category as any) ?? 'apparel',
+          vendor: p.vendor ?? null,
+          productType: p.productType ?? null,
+          handle: p.handle ?? null,
+          tags: p.tags ?? null,
+          shopifyProductGid: p.shopifyProductGid ?? null,
+          defaultVariantId: Number(p.defaultVariantId ?? 0),
+          options: Array.isArray(p.options) ? p.options : [],
+          variants: Array.isArray(p.variants) ? p.variants : [],
+          updatedAt: String(p.updatedAt ?? new Date().toISOString()),
+        };
+
+        const mappedVariant: FakeVariant | null =
+          (mappedProduct.variants as any[]).find((v) => Number(v.id) === variantId) ?? null;
+        if (!mappedVariant) throw new Error('Variant not found');
+
+        const setsRes = await fetch(`/api/products/${productId}/variants/${variantId}/sets`);
+        const setsJson = await setsRes.json().catch(() => null);
+        if (!setsRes.ok) throw new Error(setsJson?.error ?? `Failed to load folders (HTTP ${setsRes.status})`);
+        const setsList: FakeSet[] = Array.isArray(setsJson?.items) ? setsJson.items : [];
+
+        const map: Record<number, FakeSetItem[]> = {};
+        await Promise.all(
+          setsList.map(async (s) => {
+            const res = await fetch(`/api/sets/${s.id}/items`);
+            const j = await res.json().catch(() => null);
+            if (!res.ok) {
+              map[s.id] = [];
+              return;
+            }
+            const items = Array.isArray(j?.items) ? j.items : [];
+            map[s.id] = items
+              .filter((it: any) => it.itemType === 'variant_image' && it.data)
+              .map((it: any) => {
+                const img = it.data;
+                const createdAt = String(img.createdAt ?? it.createdAt ?? new Date().toISOString());
+                return {
+                  id: Number(img.id),
+                  setId: Number(it.setId ?? s.id),
+                  createdAt,
+                  label: img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`,
+                  status: (img.status as any) ?? 'ready',
+                  url: String(img.url),
+                  prompt: String(img.prompt ?? ''),
+                  schemaKey: String(img.schemaKey ?? ''),
+                  input: img.input ?? null,
+                  isSelected: false,
+                } as FakeSetItem;
+              });
+          })
+        );
+
+        if (cancelled) return;
+        setProduct(mappedProduct);
+        setVariant(mappedVariant);
+        setSets(setsList);
+        setItemsBySetId(map);
+        const defaultId = setsList.find((s) => (s as any).isDefault)?.id ?? setsList[0]?.id ?? null;
+        setActiveFolderId(defaultId);
+      } catch (e: any) {
+        if (cancelled) return;
+        setFetchMessage(e?.message ? String(e.message) : 'Failed to load');
+      } finally {
+        if (cancelled) return;
+        setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, variantId]);
 
   const lightboxAsset =
     lightbox?.kind === 'asset' ? assets.find((a) => a.id === lightbox.id) ?? null : null;
@@ -426,7 +500,44 @@ export default function VariantAssetsPage() {
     );
   }
 
-  function removeSetItem(setId: number, itemId: number) {
+  async function reloadFolderItems(setId: number) {
+    const res = await fetch(`/api/sets/${setId}/items`);
+    const j = await res.json().catch(() => null);
+    if (!res.ok) return;
+    const items = Array.isArray(j?.items) ? j.items : [];
+    setItemsBySetId((prev) => ({
+      ...prev,
+      [setId]: items
+        .filter((it: any) => it.itemType === 'variant_image' && it.data)
+        .map((it: any) => {
+          const img = it.data;
+          const createdAt = String(img.createdAt ?? it.createdAt ?? new Date().toISOString());
+          return {
+            id: Number(img.id),
+            setId: Number(it.setId ?? setId),
+            createdAt,
+            label: img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`,
+            status: (img.status as any) ?? 'ready',
+            url: String(img.url),
+            prompt: String(img.prompt ?? ''),
+            schemaKey: String(img.schemaKey ?? ''),
+            input: img.input ?? null,
+            isSelected: false,
+          } as FakeSetItem;
+        }),
+    }));
+  }
+
+  async function removeSetItem(setId: number, itemId: number) {
+    // itemId here is the underlying variant_image id
+    const res = await fetch(`/api/sets/${setId}/items/variant_image/${itemId}`, { method: 'DELETE' });
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      setSyncMessage(j?.error ? String(j.error) : `Failed to remove item (HTTP ${res.status})`);
+      setDeleteId(null);
+      return;
+    }
+
     setItemsBySetId((prev) => ({
       ...prev,
       [setId]: (prev[setId] ?? []).filter((i) => i.id !== itemId),
@@ -437,32 +548,50 @@ export default function VariantAssetsPage() {
     );
   }
 
-  function createSet(name: string) {
-    const now = new Date().toISOString();
-    const id = Math.floor(Date.now() / 1000);
-    const s: FakeSet = {
-      id,
-      variantId,
-      isDefault: false,
-      name,
-      description: null,
-      createdAt: now,
-      updatedAt: now,
-    };
+  async function createSet(name: string) {
+    const res = await fetch(`/api/products/${productId}/variants/${variantId}/sets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: null }),
+    });
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      setSyncMessage(j?.error ? String(j.error) : `Failed to create folder (HTTP ${res.status})`);
+      return;
+    }
+    const s = j?.set as FakeSet | undefined;
+    if (!s) return;
     setSets((prev) => [s, ...prev]);
-    setItemsBySetId((prev) => ({ ...prev, [id]: [] }));
-    setActiveFolderId(id);
+    setItemsBySetId((prev) => ({ ...prev, [s.id]: [] }));
+    setActiveFolderId(s.id);
   }
 
-  function renameSet(setId: number, name: string) {
-    setSets((prev) =>
-      prev.map((s) => (s.id === setId ? { ...s, name, updatedAt: new Date().toISOString() } : s))
-    );
+  async function renameSet(setId: number, name: string) {
+    const res = await fetch(`/api/sets/${setId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      setSyncMessage(j?.error ? String(j.error) : `Failed to rename folder (HTTP ${res.status})`);
+      return;
+    }
+    const updated = j?.set as FakeSet | undefined;
+    if (!updated) return;
+    setSets((prev) => prev.map((s) => (s.id === setId ? { ...s, ...updated } : s)));
   }
 
-  function deleteSetById(setId: number) {
+  async function deleteSetById(setId: number) {
     if (sets.find((s) => s.id === setId)?.isDefault) {
       setSyncMessage('Cannot delete the default folder.');
+      setDeleteId(null);
+      return;
+    }
+    const res = await fetch(`/api/sets/${setId}`, { method: 'DELETE' });
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      setSyncMessage(j?.error ? String(j.error) : `Failed to delete folder (HTTP ${res.status})`);
       setDeleteId(null);
       return;
     }
@@ -479,25 +608,30 @@ export default function VariantAssetsPage() {
     setDeleteId(null);
   }
 
-  function moveSelectedItemsFromFolder(sourceSetId: number, targetSetId: number) {
-    setItemsBySetId((prev) => {
-      const next: Record<number, FakeSetItem[]> = {};
-      for (const [k, v] of Object.entries(prev)) {
-        next[Number(k)] = [...v];
+  async function moveSelectedItemsFromFolder(sourceSetId: number, targetSetId: number) {
+    const selected = (itemsBySetId[sourceSetId] ?? []).filter((i) => i.isSelected);
+    if (selected.length === 0) {
+      setMoveOpen(false);
+      return;
+    }
+    setSyncMessage(`Moving ${selected.length} item(s)…`);
+    try {
+      for (const item of selected) {
+        await fetch(`/api/sets/${sourceSetId}/items/variant_image/${item.id}`, { method: 'DELETE' });
+        await fetch(`/api/sets/${targetSetId}/items`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemType: 'variant_image', itemId: item.id, sortOrder: 0 }),
+        });
       }
-
-      const moved: FakeSetItem[] = [];
-      const remaining: FakeSetItem[] = [];
-      for (const item of next[sourceSetId] ?? []) {
-        if (item.isSelected) moved.push({ ...item, setId: targetSetId, isSelected: false });
-        else remaining.push(item);
-      }
-      next[sourceSetId] = remaining;
-
-      next[targetSetId] = [...moved, ...(next[targetSetId] ?? [])];
-      return next;
-    });
-    setMoveOpen(false);
+      await Promise.all([reloadFolderItems(sourceSetId), reloadFolderItems(targetSetId)]);
+      setSyncMessage(`Moved ${selected.length} item(s).`);
+    } catch {
+      setSyncMessage('Move failed.');
+      await Promise.all([reloadFolderItems(sourceSetId), reloadFolderItems(targetSetId)]);
+    } finally {
+      setMoveOpen(false);
+    }
   }
 
   async function downloadImage(item: FakeSetItem) {
@@ -529,7 +663,9 @@ export default function VariantAssetsPage() {
   if (!product || !variant) {
     return (
       <section className="flex-1 p-4 lg:p-8">
-        <div className="text-muted-foreground">Variant not found.</div>
+        <div className="text-muted-foreground">
+          {loading ? 'Loading…' : 'Variant not found.'}
+        </div>
         <Button className="mt-4" variant="outline" onClick={() => router.push(`/dashboard/products/${productId}`)}>
           Back
         </Button>

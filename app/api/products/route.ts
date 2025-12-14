@@ -8,7 +8,11 @@ export async function GET() {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const items = await listProducts(team.id);
+  const rows = await listProducts(team.id);
+  const items = rows.map((r: any) => ({
+    ...(r.product ?? {}),
+    variantsCount: Number(r.variantsCount ?? 0),
+  }));
   return Response.json({ items });
 }
 
@@ -40,7 +44,7 @@ export async function POST(request: Request) {
   const parsed = createProductSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json(
-      { error: parsed.error.errors[0]?.message ?? 'Invalid request' },
+      { error: parsed.error.issues[0]?.message ?? 'Invalid request' },
       { status: 400 }
     );
   }

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from './drizzle';
 import { products, productVariants, setItems, sets, variantGenerations, variantImages } from './schema';
 import { put } from '@vercel/blob';
@@ -25,6 +25,14 @@ export async function getVariantImageById(teamId: number, imageId: number) {
     where: and(eq(variantImages.teamId, teamId), eq(variantImages.id, imageId)),
   });
   return row ?? null;
+}
+
+export async function listVariantImagesByIds(teamId: number, imageIds: number[]) {
+  const ids = Array.from(new Set(imageIds.filter((n) => Number.isFinite(n))));
+  if (ids.length === 0) return [];
+  return await db.query.variantImages.findMany({
+    where: and(eq(variantImages.teamId, teamId), inArray(variantImages.id, ids)),
+  });
 }
 
 export type CreateVariantGenerationInput = {

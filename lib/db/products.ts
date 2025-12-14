@@ -98,9 +98,21 @@ export async function createProductWithDefaultVariant(input: CreateProductInput)
 
 export async function listProducts(teamId: number) {
   return await db
-    .select()
+    .select({
+      product: products,
+      variantsCount: sql<number>`count(${productVariants.id})`,
+    })
     .from(products)
+    .leftJoin(
+      productVariants,
+      and(
+        eq(productVariants.teamId, teamId),
+        eq(productVariants.productId, products.id),
+        isNull(productVariants.deletedAt)
+      )
+    )
     .where(and(eq(products.teamId, teamId), isNull(products.deletedAt)))
+    .groupBy(products.id)
     .orderBy(desc(products.updatedAt));
 }
 
@@ -244,17 +256,15 @@ export async function createVariant(input: CreateVariantInput) {
 }
 
 export async function listVariants(teamId: number, productId: number) {
-  return await db
-    .select()
-    .from(productVariants)
-    .where(
-      and(
-        eq(productVariants.teamId, teamId),
-        eq(productVariants.productId, productId),
-        isNull(productVariants.deletedAt)
-      )
-    )
-    .orderBy(desc(productVariants.updatedAt));
+  return await db.query.productVariants.findMany({
+    where: and(
+      eq(productVariants.teamId, teamId),
+      eq(productVariants.productId, productId),
+      isNull(productVariants.deletedAt)
+    ),
+    with: { optionValues: true },
+    orderBy: desc(productVariants.updatedAt),
+  });
 }
 
 export async function getVariantById(

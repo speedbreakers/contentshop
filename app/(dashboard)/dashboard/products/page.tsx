@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { fakeProducts, FakeProduct } from '@/lib/fake/products';
 import { EllipsisVerticalIcon } from 'lucide-react';
 
 function statusBadgeVariant(status: string) {
@@ -55,12 +54,27 @@ function statusBadgeVariant(status: string) {
   return 'outline';
 }
 
+type ApiProduct = {
+  id: number;
+  title: string;
+  status: string;
+  category: 'apparel' | 'electronics' | 'jewellery';
+  vendor: string | null;
+  productType: string | null;
+  handle: string | null;
+  tags: string | null;
+  shopifyProductGid: string | null;
+  defaultVariantId: number | null;
+  updatedAt: string;
+  variantsCount: number;
+};
+
 export default function ProductsPage() {
   const router = useRouter();
-  const [items, setItems] = useState<FakeProduct[]>(() =>
-    structuredClone(fakeProducts)
-  );
+  const [items, setItems] = useState<ApiProduct[]>([]);
   const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -73,6 +87,35 @@ export default function ProductsPage() {
   const [linkProductId, setLinkProductId] = useState<number | null>(null);
   const [linkGid, setLinkGid] = useState('');
 
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    fetch('/api/products')
+      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
+      .then(({ ok, status, j }) => {
+        if (cancelled) return;
+        if (!ok) {
+          setLoadError(j?.error ? String(j.error) : `Failed to load (HTTP ${status})`);
+          setItems([]);
+          return;
+        }
+        setItems(Array.isArray(j?.items) ? j.items : []);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setLoadError(e?.message ? String(e.message) : 'Failed to load products');
+        setItems([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
@@ -82,73 +125,82 @@ export default function ProductsPage() {
     });
   }, [items, query]);
 
-  function createProduct() {
+  async function createProduct() {
     const title = newTitle.trim();
     if (!title) return;
+    const res = await fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        category: newCategory,
+        vendor: newVendor.trim() || null,
+        productType: newProductType.trim() || null,
+        handle: newHandle.trim() || null,
+        tags: newTags.trim() || null,
+        shopifyProductGid: null,
+      }),
+    });
 
-    const productId = Math.floor(Date.now() / 1000);
-    const defaultVariantId = productId * 10 + 1;
-    const now = new Date().toISOString();
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      setLoadError(data?.error ? String(data.error) : `Create failed (HTTP ${res.status})`);
+      return;
+    }
 
-    const product: FakeProduct = {
-      id: productId,
-      title,
-      status: 'draft',
-      category: newCategory,
-      vendor: newVendor || null,
-      productType: newProductType || null,
-      handle: newHandle || null,
-      tags: newTags || null,
-      shopifyProductGid: null,
-      defaultVariantId,
-      options: [],
-      variants: [
-        {
-          id: defaultVariantId,
-          productId,
-          title: 'Default',
-          sku: null,
-          shopifyVariantGid: null,
-          optionValues: [],
-          updatedAt: now,
-        },
-      ],
-      updatedAt: now,
-    };
+    const created: ApiProduct | null = data?.product
+      ? {
+          ...data.product,
+          variantsCount: 1,
+        }
+      : null;
 
-    setItems((prev) => [product, ...prev]);
-    setCreateOpen(false);
-    setNewTitle('');
-    setNewCategory('apparel');
-    setNewVendor('');
-    setNewProductType('');
-    setNewHandle('');
-    setNewTags('');
+    if (created) {
+      setItems((prev) => [created, ...prev]);
+      setCreateOpen(false);
+      setNewTitle('');
+      setNewCategory('apparel');
+      setNewVendor('');
+      setNewProductType('');
+      setNewHandle('');
+      setNewTags('');
+    }
   }
 
-  function openLink(product: FakeProduct) {
+  function openLink(product: ApiProduct) {
     setLinkProductId(product.id);
     setLinkGid(product.shopifyProductGid ?? '');
   }
 
-  function saveLink() {
+  async function saveLink() {
     if (!linkProductId) return;
-    setItems((prev) =>
-      prev.map((p) =>
-        p.id === linkProductId
-          ? {
-              ...p,
-              shopifyProductGid: linkGid.trim() || null,
-              updatedAt: new Date().toISOString(),
-            }
-          : p
-      )
-    );
+    const res = await fetch(`/api/products/${linkProductId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopifyProductGid: linkGid.trim() || null }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      setLoadError(data?.error ? String(data.error) : `Save failed (HTTP ${res.status})`);
+      return;
+    }
+
+    const updated = data?.product as ApiProduct | undefined;
+    if (updated) {
+      setItems((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+    }
     setLinkProductId(null);
     setLinkGid('');
   }
 
-  function deleteProduct(productId: number) {
+  async function deleteProduct(productId: number) {
+    const res = await fetch(`/api/products/${productId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      setLoadError(data?.error ? String(data.error) : `Delete failed (HTTP ${res.status})`);
+      return;
+    }
     setItems((prev) => prev.filter((p) => p.id !== productId));
   }
 
@@ -270,6 +322,9 @@ export default function ProductsPage() {
               placeholder="Search by title or handle…"
             />
           </div>
+          {loadError ? (
+            <div className="text-sm text-red-600 mb-3">{loadError}</div>
+          ) : null}
 
           <Table>
             <TableHeader>
@@ -283,7 +338,13 @@ export default function ProductsPage() {
             </TableHeader>
 
             <TableBody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-muted-foreground">
                     No products found.
@@ -318,7 +379,7 @@ export default function ProductsPage() {
                         {p.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>{p.variants.length}</TableCell>
+                    <TableCell>{p.variantsCount ?? '—'}</TableCell>
                     <TableCell>
                       {p.shopifyProductGid ? (
                         <Badge>Linked</Badge>

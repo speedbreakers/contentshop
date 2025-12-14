@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import { Badge } from '@/components/ui/badge';
@@ -46,15 +46,91 @@ export function VariantsTable(props: {
   onChange: (next: FakeProduct) => void;
 }) {
   const router = useRouter();
-  const variants = useMemo(
-    () => [...props.product.variants].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    [props.product.variants]
-  );
+  const [variants, setVariants] = useState<FakeVariant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetch(`/api/products/${props.product.id}/variants`)
+      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
+      .then(({ ok, status, j }) => {
+        if (cancelled) return;
+        if (!ok) {
+          setError(j?.error ? String(j.error) : `Failed to load (HTTP ${status})`);
+          setVariants([]);
+          return;
+        }
+        const items = Array.isArray(j?.items) ? j.items : [];
+        setVariants(
+          items.map((v: any) => ({
+            id: Number(v.id),
+            productId: Number(v.productId ?? props.product.id),
+            title: String(v.title),
+            sku: v.sku ?? null,
+            shopifyVariantGid: v.shopifyVariantGid ?? null,
+            optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
+            updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+          }))
+        );
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e?.message ? String(e.message) : 'Failed to load variants');
+        setVariants([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.product.id]);
 
   const [linkVariantId, setLinkVariantId] = useState<number | null>(null);
   const [deleteVariantId, setDeleteVariantId] = useState<number | null>(null);
 
-  function setDefault(variantId: number) {
+  async function reloadVariants() {
+    setLoading(true);
+    setError(null);
+    const res = await fetch(`/api/products/${props.product.id}/variants`);
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      setError(j?.error ? String(j.error) : `Failed to load (HTTP ${res.status})`);
+      setVariants([]);
+      setLoading(false);
+      return;
+    }
+    const items = Array.isArray(j?.items) ? j.items : [];
+    setVariants(
+      items.map((v: any) => ({
+        id: Number(v.id),
+        productId: Number(v.productId ?? props.product.id),
+        title: String(v.title),
+        sku: v.sku ?? null,
+        shopifyVariantGid: v.shopifyVariantGid ?? null,
+        optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
+        updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+      }))
+    );
+    setLoading(false);
+  }
+
+  async function setDefault(variantId: number) {
+    setError(null);
+    const res = await fetch(`/api/products/${props.product.id}/default-variant`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variantId }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      setError(data?.error ? String(data.error) : `Failed (HTTP ${res.status})`);
+      return;
+    }
     props.onChange({
       ...props.product,
       defaultVariantId: variantId,
@@ -63,32 +139,45 @@ export function VariantsTable(props: {
   }
 
   function saveVariantLink(variantId: number, gid: string) {
-    props.onChange({
-      ...props.product,
-      variants: props.product.variants.map((v) =>
-        v.id === variantId
-          ? { ...v, shopifyVariantGid: gid || null, updatedAt: new Date().toISOString() }
-          : v
-      ),
-      updatedAt: new Date().toISOString(),
-    });
+    setError(null);
+    fetch(`/api/products/${props.product.id}/variants/${variantId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopifyVariantGid: gid || null }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
+      .then(({ ok, status, j }) => {
+        if (!ok) {
+          setError(j?.error ? String(j.error) : `Save failed (HTTP ${status})`);
+          return;
+        }
+        reloadVariants();
+      })
+      .catch((e) => setError(e?.message ? String(e.message) : 'Save failed'))
+      .finally(() => setLinkVariantId(null));
   }
 
   function deleteVariant(variantId: number) {
-    props.onChange({
-      ...props.product,
-      variants: props.product.variants.filter((v) => v.id !== variantId),
-      updatedAt: new Date().toISOString(),
-    });
-    setDeleteVariantId(null);
+    setError(null);
+    fetch(`/api/products/${props.product.id}/variants/${variantId}`, { method: 'DELETE' })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
+      .then(({ ok, status, j }) => {
+        if (!ok) {
+          setError(j?.error ? String(j.error) : `Delete failed (HTTP ${status})`);
+          return;
+        }
+        reloadVariants();
+      })
+      .catch((e) => setError(e?.message ? String(e.message) : 'Delete failed'))
+      .finally(() => setDeleteVariantId(null));
   }
 
   const linkVariant = linkVariantId
-    ? props.product.variants.find((v) => v.id === linkVariantId) ?? null
+    ? variants.find((v) => v.id === linkVariantId) ?? null
     : null;
 
   const deleteVariantEntity = deleteVariantId
-    ? props.product.variants.find((v) => v.id === deleteVariantId) ?? null
+    ? variants.find((v) => v.id === deleteVariantId) ?? null
     : null;
 
   return (
@@ -99,6 +188,7 @@ export function VariantsTable(props: {
           <div className="text-sm text-muted-foreground">
             Default variant is required. Reassign default before removing it.
           </div>
+          {error ? <div className="text-sm text-red-600">{error}</div> : null}
         </CardHeader>
         <CardContent>
           <Table>
@@ -113,9 +203,15 @@ export function VariantsTable(props: {
             </TableHeader>
 
             <TableBody>
-              {variants.map((v) => {
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : variants.map((v) => {
                 const isDefault = v.id === props.product.defaultVariantId;
-                const isLast = props.product.variants.length <= 1;
+                const isLast = variants.length <= 1;
                 const canDelete = !isDefault && !isLast;
 
                 return (
@@ -166,7 +262,7 @@ export function VariantsTable(props: {
                             </Link>
                           </DropdownMenuItem>
                           {!isDefault ? (
-                            <DropdownMenuItem onClick={() => setDefault(v.id)}>
+                        <DropdownMenuItem onClick={() => setDefault(v.id)}>
                               Set as default
                             </DropdownMenuItem>
                           ) : null}

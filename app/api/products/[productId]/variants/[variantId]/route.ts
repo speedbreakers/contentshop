@@ -67,7 +67,7 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json(
-      { error: parsed.error.errors[0]?.message ?? 'Invalid request' },
+      { error: parsed.error.issues[0]?.message ?? 'Invalid request' },
       { status: 400 }
     );
   }

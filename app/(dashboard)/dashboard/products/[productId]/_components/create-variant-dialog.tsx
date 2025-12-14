@@ -33,6 +33,8 @@ export function CreateVariantDialog(props: {
   const [title, setTitle] = useState('');
   const [sku, setSku] = useState('');
   const [values, setValues] = useState<Record<number, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function reset() {
     setTitle('');
@@ -40,7 +42,7 @@ export function CreateVariantDialog(props: {
     setValues({});
   }
 
-  function create() {
+  async function create() {
     const t = title.trim();
     if (!t) return;
 
@@ -50,12 +52,9 @@ export function CreateVariantDialog(props: {
       }
     }
 
-    const id = Math.floor(Date.now() / 1000);
-    const now = new Date().toISOString();
-
-    props.onCreate({
-      id,
-      productId: props.product.id,
+    setSaving(true);
+    setError(null);
+    const payload = {
       title: t,
       sku: sku.trim() || null,
       shopifyVariantGid: null,
@@ -65,11 +64,38 @@ export function CreateVariantDialog(props: {
           value: values[opt.id]?.trim() ?? '',
         }))
         .filter((v) => v.value),
-      updatedAt: now,
-    });
+    };
 
-    props.onOpenChange(false);
-    reset();
+    try {
+      const res = await fetch(`/api/products/${props.product.id}/variants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error ? String(data.error) : `Create failed (HTTP ${res.status})`);
+      }
+      const v = data?.variant;
+      if (!v) throw new Error('Create failed (missing variant)');
+
+      props.onCreate({
+        id: Number(v.id),
+        productId: Number(v.productId ?? props.product.id),
+        title: String(v.title),
+        sku: v.sku ?? null,
+        shopifyVariantGid: v.shopifyVariantGid ?? null,
+        optionValues: Array.isArray(v.optionValues) ? v.optionValues : payload.optionValues,
+        updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+      });
+
+      props.onOpenChange(false);
+      reset();
+    } catch (e: any) {
+      setError(e?.message ? String(e.message) : 'Create failed');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -90,6 +116,8 @@ export function CreateVariantDialog(props: {
         <DialogHeader>
           <DialogTitle>Create variant</DialogTitle>
         </DialogHeader>
+
+        {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
         <FieldGroup>
           <Field>
@@ -149,7 +177,9 @@ export function CreateVariantDialog(props: {
           <Button variant="outline" onClick={() => props.onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={create}>Create</Button>
+          <Button onClick={create} disabled={saving}>
+            {saving ? 'Creating…' : 'Create'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

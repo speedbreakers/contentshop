@@ -1,14 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
-import { fakeProducts, FakeProduct, FakeVariant } from '@/lib/fake/products';
+import { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import { VariantsTable } from './_components/variants-table';
 import { CreateVariantDialog } from './_components/create-variant-dialog';
 import { LinkShopifyDialog } from './_components/link-shopify-dialog';
@@ -25,21 +25,79 @@ export default function ProductDetailPage() {
   const params = useParams<{ productId: string }>();
   const productId = Number(params.productId);
 
-  const initial = useMemo(
-    () => fakeProducts.find((p) => p.id === productId) ?? null,
-    [productId]
-  );
-  const [product, setProduct] = useState<FakeProduct | null>(() =>
-    initial ? structuredClone(initial) : null
-  );
+  const [product, setProduct] = useState<FakeProduct | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [linkOpen, setLinkOpen] = useState(false);
   const [createVariantOpen, setCreateVariantOpen] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    fetch(`/api/products/${productId}`)
+      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
+      .then(({ ok, status, j }) => {
+        if (cancelled) return;
+        if (!ok) {
+          setLoadError(j?.error ? String(j.error) : `Failed to load (HTTP ${status})`);
+          setProduct(null);
+          return;
+        }
+        const p = j?.product;
+        if (!p) {
+          setLoadError('Product not found');
+          setProduct(null);
+          return;
+        }
+        const mapped: FakeProduct = {
+          id: Number(p.id),
+          title: String(p.title),
+          status: (p.status as any) ?? 'draft',
+          category: (p.category as any) ?? 'apparel',
+          vendor: p.vendor ?? null,
+          productType: p.productType ?? null,
+          handle: p.handle ?? null,
+          tags: p.tags ?? null,
+          shopifyProductGid: p.shopifyProductGid ?? null,
+          defaultVariantId: Number(p.defaultVariantId ?? (p.variants?.[0]?.id ?? 0)),
+          options: Array.isArray(p.options) ? p.options : [],
+          variants: Array.isArray(p.variants)
+            ? p.variants.map((v: any) => ({
+                id: Number(v.id),
+                productId: Number(v.productId ?? p.id),
+                title: String(v.title),
+                sku: v.sku ?? null,
+                shopifyVariantGid: v.shopifyVariantGid ?? null,
+                optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
+                updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+              }))
+            : [],
+          updatedAt: String(p.updatedAt ?? new Date().toISOString()),
+        };
+        setProduct(mapped);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setLoadError(e?.message ? String(e.message) : 'Failed to load product');
+        setProduct(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
   if (!product) {
     return (
       <section className="flex-1 p-4 lg:p-8">
-        <div className="text-muted-foreground">Product not found.</div>
+        <div className="text-muted-foreground">
+          {loading ? 'Loading…' : loadError ?? 'Product not found.'}
+        </div>
         <Button asChild className="mt-4">
           <Link href="/dashboard/products">Back to products</Link>
         </Button>
@@ -61,6 +119,50 @@ export default function ProductDetailPage() {
     });
   }
 
+  async function saveProductPatch(patch: Partial<Pick<FakeProduct, 'title' | 'vendor' | 'productType' | 'handle' | 'tags' | 'shopifyProductGid' | 'category' | 'status'>>) {
+    const current = product;
+    if (!current) return;
+    setLoadError(null);
+    const res = await fetch(`/api/products/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      setLoadError(data?.error ? String(data.error) : `Save failed (HTTP ${res.status})`);
+      return;
+    }
+    // Re-fetch to keep variants/options in sync.
+    setLoading(true);
+    fetch(`/api/products/${current.id}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const p = j?.product;
+        if (!p) return;
+        setProduct((prev) =>
+          prev
+            ? {
+                ...prev,
+                title: p.title,
+                status: p.status,
+                category: p.category,
+                vendor: p.vendor,
+                productType: p.productType,
+                handle: p.handle,
+                tags: p.tags,
+                shopifyProductGid: p.shopifyProductGid,
+                defaultVariantId: p.defaultVariantId ?? prev.defaultVariantId,
+                options: Array.isArray(p.options) ? p.options : prev.options,
+                variants: Array.isArray(p.variants) ? p.variants : prev.variants,
+                updatedAt: p.updatedAt ?? prev.updatedAt,
+              }
+            : prev
+        );
+      })
+      .finally(() => setLoading(false));
+  }
+
   return (
     <section className="flex-1 p-4 lg:p-8">
       <div className="mb-6">
@@ -70,6 +172,7 @@ export default function ProductDetailPage() {
           </Link>{' '}
           / {product.title}
         </div>
+        {loadError ? <div className="text-sm text-red-600 mb-2">{loadError}</div> : null}
 
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -216,13 +319,17 @@ export default function ProductDetailPage() {
                   <div className="flex justify-end">
                     <Button
                       onClick={() =>
-                        setProduct({
-                          ...product,
-                          updatedAt: new Date().toISOString(),
+                        saveProductPatch({
+                          title: product.title,
+                          vendor: product.vendor ?? null,
+                          productType: product.productType ?? null,
+                          handle: product.handle ?? null,
+                          tags: product.tags ?? null,
                         })
                       }
+                      disabled={loading}
                     >
-                      Save (fake)
+                      Save
                     </Button>
                   </div>
                 </CardContent>
@@ -259,20 +366,8 @@ export default function ProductDetailPage() {
         label="Shopify Product GID"
         value={product.shopifyProductGid ?? ''}
         placeholder="gid://shopify/Product/..."
-        onSave={(gid) =>
-          setProduct({
-            ...product,
-            shopifyProductGid: gid || null,
-            updatedAt: new Date().toISOString(),
-          })
-        }
-        onUnlink={() =>
-          setProduct({
-            ...product,
-            shopifyProductGid: null,
-            updatedAt: new Date().toISOString(),
-          })
-        }
+        onSave={(gid) => saveProductPatch({ shopifyProductGid: gid || null })}
+        onUnlink={() => saveProductPatch({ shopifyProductGid: null })}
       />
     </section>
   );
