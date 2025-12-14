@@ -127,6 +127,7 @@ export default function VariantAssetsPage() {
   const [genCustomInstructions, setGenCustomInstructions] = useState('');
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
+  const [genFormError, setGenFormError] = useState<string | null>(null);
 
   // Product images input (array of file URLs)
   const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '', '', '', '', '']);
@@ -335,17 +336,18 @@ export default function VariantAssetsPage() {
     }, 650);
   }
 
-  async function generateNewAssets(label = 'generated-image') {
+  async function generateNewAssets(label = 'generated-image'): Promise<boolean> {
     if (!defaultSetId) {
       setSyncMessage('Default folder is missing (unexpected).');
-      return;
+      return false;
     }
     const n = Math.max(1, Math.min(10, Math.floor(genNumberOfVariations || 1)));
     const productImages = genProductImages.map((s) => s.trim()).filter(Boolean);
 
     if (productImages.length === 0) {
-      setSyncMessage('At least one product image URL is required.');
-      return;
+      // The modal should show the validation; keep this as a guard.
+      setGenFormError('At least one product image is required.');
+      return false;
     }
 
     const input = {
@@ -422,6 +424,7 @@ export default function VariantAssetsPage() {
       }));
       setIsGenerating(false);
       setSyncMessage(`Generated ${created.length} image(s).`);
+      return true;
     } catch (err: any) {
       setItemsBySetId((prev) => ({
         ...prev,
@@ -429,6 +432,7 @@ export default function VariantAssetsPage() {
       }));
       setIsGenerating(false);
       setSyncMessage(err?.message ? String(err.message) : 'Generation failed.');
+      return false;
     }
   }
 
@@ -1115,7 +1119,13 @@ export default function VariantAssetsPage() {
       </Dialog>
 
       {/* Generate dialog */}
-      <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
+      <Dialog
+        open={generateOpen}
+        onOpenChange={(open) => {
+          setGenerateOpen(open);
+          if (open) setGenFormError(null);
+        }}
+      >
         <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -1125,111 +1135,124 @@ export default function VariantAssetsPage() {
               </div>
             </DialogTitle>
           </DialogHeader>
-          <FieldGroup>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Left: required inputs */}
-              <div className="space-y-4 border-r">
-                <div className="space-y-2">
-                  <div className="text-sm font-medium">
-                    Product images <span className="text-red-500">*</span>
-                  </div>
-                  <div className="grid grid-cols-5 gap-2">
-                    {genProductImages.map((url, idx) => (
-                      <div key={idx} className="flex gap-2">
-                        <div className="flex-1">
-                          <AssetPickerField
-                            value={url}
-                            onChange={(next) =>
-                              setGenProductImages((prev) =>
-                                prev.map((v, i) => (i === idx ? next : v))
-                              )
-                            }
-                            kind="product"
-                          />
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (isGenerating) return;
+              const productImages = genProductImages.map((s) => s.trim()).filter(Boolean);
+              if (productImages.length === 0) {
+                setGenFormError('At least one product image is required.');
+                return;
+              }
+              setGenFormError(null);
+              const ok = await generateNewAssets('generated-image');
+              if (ok) setGenerateOpen(false);
+            }}
+          >
+            <FieldGroup>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left: required inputs */}
+                <div className="space-y-4 border-r">
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">
+                      Product images <span className="text-red-500">*</span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-2">
+                      {genProductImages.map((url, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <div className="flex-1">
+                            <AssetPickerField
+                              value={url}
+                              onChange={(next) =>
+                                setGenProductImages((prev) =>
+                                  prev.map((v, i) => (i === idx ? next : v))
+                                )
+                              }
+                              kind="product"
+                            />
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                    {genFormError ? <div className="text-sm text-red-600">{genFormError}</div> : null}
+                  </div>
+                </div>
+
+                {/* Right: optional context + settings */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <AssetPickerField
+                      label="Model image (optional)"
+                      value={genModelImageUrl}
+                      onChange={setGenModelImageUrl}
+                      kind="model"
+                      allowTemplates
+                      templateKind="model"
+                    />
+                    <AssetPickerField
+                      label="Background image (optional)"
+                      value={genBackgroundImageUrl}
+                      onChange={setGenBackgroundImageUrl}
+                      kind="background"
+                      allowTemplates
+                      templateKind="background"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field>
+                      <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>
+                      <Input
+                        id="gen-variations"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={String(genNumberOfVariations)}
+                        onChange={(e) => setGenNumberOfVariations(Number(e.target.value))}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
+                      <select
+                        id="gen-ratio"
+                        value={genAspectRatio}
+                        onChange={(e) => setGenAspectRatio(e.target.value as any)}
+                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      >
+                        <option value="1:1">1:1</option>
+                        <option value="4:5">4:5</option>
+                        <option value="3:4">3:4</option>
+                        <option value="16:9">16:9</option>
+                      </select>
+                    </Field>
                   </div>
                 </div>
               </div>
 
-              {/* Right: optional context + settings */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <AssetPickerField
-                    label="Model image (optional)"
-                    value={genModelImageUrl}
-                    onChange={setGenModelImageUrl}
-                    kind="model"
-                    allowTemplates
-                    templateKind="model"
-                  />
-                  <AssetPickerField
-                    label="Background image (optional)"
-                    value={genBackgroundImageUrl}
-                    onChange={setGenBackgroundImageUrl}
-                    kind="background"
-                    allowTemplates
-                    templateKind="background"
-                  />
-                </div>
+              <Field>
+                <FieldLabel htmlFor="gen-instructions">Custom instructions (optional)</FieldLabel>
+                <Textarea
+                  id="gen-instructions"
+                  value={genCustomInstructions}
+                  onChange={(e) => setGenCustomInstructions(e.target.value)}
+                  placeholder="e.g., brighter background, more premium lighting, centered framing"
+                  className="min-h-[120px] resize-none"
+                />
+              </Field>
+            </FieldGroup>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>
-                    <Input
-                      id="gen-variations"
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={String(genNumberOfVariations)}
-                      onChange={(e) => setGenNumberOfVariations(Number(e.target.value))}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
-                    <select
-                      id="gen-ratio"
-                      value={genAspectRatio}
-                      onChange={(e) => setGenAspectRatio(e.target.value as any)}
-                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                    >
-                      <option value="1:1">1:1</option>
-                      <option value="4:5">4:5</option>
-                      <option value="3:4">3:4</option>
-                      <option value="16:9">16:9</option>
-                    </select>
-                  </Field>
-                </div>
-              </div>
-            </div>
-
-            <Field>
-              <FieldLabel htmlFor="gen-instructions">Custom instructions (optional)</FieldLabel>
-              <Textarea
-                id="gen-instructions"
-                value={genCustomInstructions}
-                onChange={(e) => setGenCustomInstructions(e.target.value)}
-                placeholder="e.g., brighter background, more premium lighting, centered framing"
-                className="min-h-[120px] resize-none"
-              />
-              <FieldDescription>Mock generator for now — later this will call Vertex AI.</FieldDescription>
-            </Field>
-          </FieldGroup>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setGenerateOpen(false)} disabled={isGenerating}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                generateNewAssets('generated-image').then(() => setGenerateOpen(false));
-              }}
-              disabled={isGenerating}
-            >
-              Generate
-            </Button>
-          </DialogFooter>
+            <DialogFooter className="mt-4">
+              <Button variant="outline" onClick={() => setGenerateOpen(false)} disabled={isGenerating}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isGenerating}
+              >
+                {isGenerating ? 'Generating…' : 'Generate'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
