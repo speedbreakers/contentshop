@@ -1611,12 +1611,35 @@ export default function VariantAssetsPage() {
                 if (!renameItem) return;
                 const name = renameItemName.trim();
                 if (!name) return;
+                // Optimistic update, then persist to DB so it survives refresh.
+                const prevName = renameSetItem?.label ?? '';
                 setItemsBySetId((prev) => ({
                   ...prev,
                   [renameItem.setId]: (prev[renameItem.setId] ?? []).map((i) =>
                     i.id === renameItem.itemId ? { ...i, label: name } : i
                   ),
                 }));
+
+                fetch(`/api/variant-images/${renameItem.itemId}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ output_label: name }),
+                })
+                  .then(async (res) => {
+                    const j = await res.json().catch(() => null);
+                    if (!res.ok) throw new Error(j?.error ?? `Rename failed (HTTP ${res.status})`);
+                  })
+                  .catch((err) => {
+                    // Roll back UI if the server update fails.
+                    setItemsBySetId((prev) => ({
+                      ...prev,
+                      [renameItem.setId]: (prev[renameItem.setId] ?? []).map((i) =>
+                        i.id === renameItem.itemId ? { ...i, label: prevName || i.label } : i
+                      ),
+                    }));
+                    setSyncMessage(err?.message ? String(err.message) : 'Rename failed.');
+                  });
+
                 setRenameItem(null);
                 setRenameItemName('');
               }}
