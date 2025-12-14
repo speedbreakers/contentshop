@@ -122,6 +122,8 @@ export default function VariantAssetsPage() {
   const [newSetOpen, setNewSetOpen] = useState(false);
   const [renameSetId, setRenameSetId] = useState<number | null>(null);
   const [renameSetName, setRenameSetName] = useState('');
+  const [renameItem, setRenameItem] = useState<{ setId: number; itemId: number } | null>(null);
+  const [renameItemName, setRenameItemName] = useState('');
   const [searchItems, setSearchItems] = useState('');
   const [searchFolders, setSearchFolders] = useState('');
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -157,6 +159,9 @@ export default function VariantAssetsPage() {
     deleteId?.kind === 'setItem'
       ? (itemsBySetId[deleteId.setId ?? -1] ?? []).find((i) => i.id === deleteId.id) ?? null
       : null;
+  const renameSetItem = renameItem
+    ? (itemsBySetId[renameItem.setId] ?? []).find((i) => i.id === renameItem.itemId) ?? null
+    : null;
   const detailsItem = details
     ? (itemsBySetId[details.setId] ?? []).find((i) => i.id === details.itemId) ?? null
     : null;
@@ -743,17 +748,6 @@ export default function VariantAssetsPage() {
                     >
                       Sync
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (!activeFolderId) return;
-                        downloadFolder(activeFolderId);
-                      }}
-                      disabled={!activeFolderId}
-                    >
-                      Download folder
-                    </Button>
                   </div>
                 </div>
 
@@ -819,6 +813,14 @@ export default function VariantAssetsPage() {
                                   }}
                                 >
                                   View details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setRenameItem({ setId: i.setId, itemId: i.id });
+                                    setRenameItemName(i.label);
+                                  }}
+                                >
+                                  Rename image
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => downloadImage(i)}
@@ -1387,6 +1389,63 @@ export default function VariantAssetsPage() {
                 renameSet(renameSetId, name);
                 setRenameSetId(null);
               }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename image dialog */}
+      <Dialog
+        open={renameItem !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameItem(null);
+            setRenameItemName('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename image</DialogTitle>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="rename-image-name">Name</FieldLabel>
+              <Input
+                id="rename-image-name"
+                value={renameItemName}
+                onChange={(e) => setRenameItemName(e.target.value)}
+                placeholder={renameSetItem?.label ?? 'e.g. hero-shot-1'}
+              />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRenameItem(null);
+                setRenameItemName('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!renameItem) return;
+                const name = renameItemName.trim();
+                if (!name) return;
+                setItemsBySetId((prev) => ({
+                  ...prev,
+                  [renameItem.setId]: (prev[renameItem.setId] ?? []).map((i) =>
+                    i.id === renameItem.itemId ? { ...i, label: name } : i
+                  ),
+                }));
+                setRenameItem(null);
+                setRenameItemName('');
+              }}
+              disabled={!renameItemName.trim()}
             >
               Save
             </Button>
