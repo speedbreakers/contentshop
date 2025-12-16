@@ -5,7 +5,7 @@ export function resolveGenerationWorkflowKey(args: {
   purpose: GenerationPurpose;
 }): GenerationWorkflowKey {
   const family = args.productCategory === 'apparel' ? 'apparel' : 'non_apparel';
-  const purpose = args.purpose === 'ads' ? 'ads' : 'catalog';
+  const purpose = args.purpose === 'ads' ? 'ads' : args.purpose === 'infographics' ? 'infographics' : 'catalog';
   return `${family}.${purpose}.v1` as GenerationWorkflowKey;
 }
 

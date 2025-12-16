@@ -125,7 +125,7 @@ export default function VariantAssetsPage() {
   const [genNumberOfVariations, setGenNumberOfVariations] = useState(1);
   const [genOutputFormat, setGenOutputFormat] = useState<'png' | 'jpg' | 'webp'>('png');
   const [genAspectRatio, setGenAspectRatio] = useState<'1:1' | '4:5' | '3:4' | '16:9'>('1:1');
-  const [genPurpose, setGenPurpose] = useState<'catalog' | 'ads'>('catalog');
+  const [genPurpose, setGenPurpose] = useState<'catalog' | 'ads' | 'infographics'>('catalog');
   const [genCustomInstructions, setGenCustomInstructions] = useState('');
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
@@ -1250,6 +1250,7 @@ export default function VariantAssetsPage() {
                     >
                       <option value="catalog">Catalog</option>
                       <option value="ads">Ads</option>
+                      <option value="infographics">Infographics</option>
                     </select>
                   </Field>
                 </div>

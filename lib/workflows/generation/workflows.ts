@@ -3,7 +3,7 @@ import type { BaseGenerationInput, GenerationWorkflow, GenerationWorkflowKey } f
 
 export const baseGenerationInputSchema = z.object({
   product_images: z.array(z.string().min(1)).min(1),
-  purpose: z.enum(['catalog', 'ads']).default('catalog'),
+  purpose: z.enum(['catalog', 'ads', 'infographics']).default('catalog'),
   number_of_variations: z.number().int().min(1).max(10).default(1),
   model_image: z.string().optional().default(''),
   background_image: z.string().optional().default(''),
@@ -30,6 +30,16 @@ function buildAdsGuidelines() {
   ].join(' ');
 }
 
+function buildInfographicsGuidelines() {
+  return [
+    'Goal: ecommerce infographic image with text overlays.',
+    'Text overlays are allowed and encouraged: short headline, feature callouts, labels, and minimal stats.',
+    'Keep product fidelity: do not change product color, shape, branding, or text on the product itself.',
+    'Use a clean, readable layout with high contrast and generous spacing.',
+    'Do not include pricing or claims unless explicitly requested.',
+  ].join(' ');
+}
+
 function buildApparelGuidelines(purpose: 'catalog' | 'ads') {
   return [
     'Product category: apparel.',
@@ -50,15 +60,21 @@ function buildNonApparelGuidelines(purpose: 'catalog' | 'ads') {
 
 function buildPromptBase(args: {
   productTitle: string;
-  purpose: 'catalog' | 'ads';
+  purpose: 'catalog' | 'ads' | 'infographics';
   categoryFamily: 'apparel' | 'non_apparel';
   customInstructions: string;
 }) {
-  const purposeGuidelines = args.purpose === 'catalog' ? buildCatalogGuidelines() : buildAdsGuidelines();
+  const purposeGuidelines =
+    args.purpose === 'catalog'
+      ? buildCatalogGuidelines()
+      : args.purpose === 'ads'
+        ? buildAdsGuidelines()
+        : buildInfographicsGuidelines();
+
   const categoryGuidelines =
     args.categoryFamily === 'apparel'
-      ? buildApparelGuidelines(args.purpose)
-      : buildNonApparelGuidelines(args.purpose);
+      ? buildApparelGuidelines(args.purpose === 'infographics' ? 'catalog' : args.purpose)
+      : buildNonApparelGuidelines(args.purpose === 'infographics' ? 'catalog' : args.purpose);
   const extra = args.customInstructions.trim();
   return [
     `Generate an ecommerce product image for "${args.productTitle}".`,
@@ -73,7 +89,7 @@ function buildPromptBase(args: {
 function makeWorkflow(
   key: GenerationWorkflowKey,
   categoryFamily: 'apparel' | 'non_apparel',
-  purpose: 'catalog' | 'ads'
+  purpose: 'catalog' | 'ads' | 'infographics'
 ): GenerationWorkflow<BaseGenerationInput> {
   // For v1 all workflows share the same input schema; divergence can be added later.
   const inputSchema = baseGenerationInputSchema;
@@ -94,8 +110,10 @@ function makeWorkflow(
 export const generationWorkflows: Record<GenerationWorkflowKey, GenerationWorkflow<BaseGenerationInput>> = {
   'apparel.catalog.v1': makeWorkflow('apparel.catalog.v1', 'apparel', 'catalog'),
   'apparel.ads.v1': makeWorkflow('apparel.ads.v1', 'apparel', 'ads'),
+  'apparel.infographics.v1': makeWorkflow('apparel.infographics.v1', 'apparel', 'infographics'),
   'non_apparel.catalog.v1': makeWorkflow('non_apparel.catalog.v1', 'non_apparel', 'catalog'),
   'non_apparel.ads.v1': makeWorkflow('non_apparel.ads.v1', 'non_apparel', 'ads'),
+  'non_apparel.infographics.v1': makeWorkflow('non_apparel.infographics.v1', 'non_apparel', 'infographics'),
 };
 
 export function getGenerationWorkflow(key: GenerationWorkflowKey) {

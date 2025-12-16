@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const generationPurposeSchema = z.enum(['catalog', 'ads']);
+export const generationPurposeSchema = z.enum(['catalog', 'ads', 'infographics']);
 export type GenerationPurpose = z.infer<typeof generationPurposeSchema>;
 
 export type WorkflowCategory = 'apparel' | 'non_apparel';
@@ -8,8 +8,10 @@ export type WorkflowCategory = 'apparel' | 'non_apparel';
 export type GenerationWorkflowKey =
   | 'apparel.catalog.v1'
   | 'apparel.ads.v1'
+  | 'apparel.infographics.v1'
   | 'non_apparel.catalog.v1'
-  | 'non_apparel.ads.v1';
+  | 'non_apparel.ads.v1'
+  | 'non_apparel.infographics.v1';
 
 export type ProductCategory = 'apparel' | 'electronics' | 'jewellery' | (string & {});
 
