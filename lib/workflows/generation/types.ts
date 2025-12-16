@@ -35,6 +35,15 @@ export type GenerationWorkflow<TInput extends BaseGenerationInput = BaseGenerati
   key: GenerationWorkflowKey;
   inputSchema: z.ZodType<TInput>;
   buildPrompt: (args: { input: TInput; product: WorkflowProductContext }) => string;
+  execute?: (args: {
+    teamId: number;
+    productId: number;
+    variantId: number;
+    requestOrigin: string;
+    authCookie?: string | null;
+    input: TInput;
+    numberOfVariations: number;
+  }) => Promise<{ generation: any; images: any[]; folderId: number }>;
 };
 
 

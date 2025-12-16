@@ -1,9 +1,13 @@
 - add product modal - Done
+- description generation - Done
+- credits system - Done
+- infographics workflow - Done
+- garment workflow implementation - Done
+
 - aspect ratio setting
 - shopify link
-- garment / non-garment workflow
-- description generation - Done
-- description workflow
+- non-garment / infographics workflow implementation
+- description workflow implementation
 - invite team members email
-- credits system - Done
 - plan upgrade / downgrade flow
+- model and background library

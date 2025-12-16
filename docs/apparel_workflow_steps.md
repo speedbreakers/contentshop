@@ -54,7 +54,7 @@
 │  ──────────────────────                                                   │
 │  Input: Garment images + model description + background + pose prompt     │
 │  Process: Gemini Image model generates model wearing garment              │
-│  Output: { url, path, prompt, source }                                    │
+│  Output: { url }                                    │
 └──────────────────────────────────────────────────────────────────────────┘
        │
        ▼

@@ -51,6 +51,155 @@ export type CreateVariantGenerationGeminiInput = CreateVariantGenerationInput & 
   productCategory: string;
 };
 
+export type ProvidedOutput = {
+  blobUrl: string;
+  prompt?: string;
+  mimeType?: string;
+};
+
+/**
+ * Persists a generation and already-created image outputs (e.g. pipeline workflows),
+ * then adds images to the variant's default folder.
+ */
+export async function createVariantGenerationWithProvidedOutputs(
+  input: CreateVariantGenerationInput & { outputs: ProvidedOutput[]; generationId?: number }
+) {
+  const now = new Date();
+
+  // Validate variant/product belong to team and aren't deleted.
+  const variant = await db.query.productVariants.findFirst({
+    where: and(
+      eq(productVariants.teamId, input.teamId),
+      eq(productVariants.productId, input.productId),
+      eq(productVariants.id, input.variantId),
+      isNull(productVariants.deletedAt)
+    ),
+    columns: { id: true },
+  });
+  if (!variant) throw new Error('Variant not found');
+
+  const product = await db.query.products.findFirst({
+    where: and(eq(products.teamId, input.teamId), eq(products.id, input.productId), isNull(products.deletedAt)),
+    columns: { id: true },
+  });
+  if (!product) throw new Error('Product not found');
+
+  const gen =
+    typeof input.generationId === 'number'
+      ? await db.query.variantGenerations.findFirst({
+          where: and(
+            eq(variantGenerations.teamId, input.teamId),
+            eq(variantGenerations.id, input.generationId)
+          ),
+        })
+      : null;
+
+  const createdGen =
+    gen ??
+    (await db
+      .insert(variantGenerations)
+      .values({
+        teamId: input.teamId,
+        variantId: input.variantId,
+        schemaKey: input.schemaKey,
+        input: input.input ?? null,
+        numberOfVariations: input.numberOfVariations,
+        provider: 'gemini',
+        status: 'generating',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .then((rows) => rows[0] ?? null));
+
+  if (!createdGen) throw new Error('Failed to create generation');
+
+  try {
+    // Ensure default folder exists.
+    const defaultFolder = await db.query.sets.findFirst({
+      where: and(
+        eq(sets.teamId, input.teamId),
+        eq(sets.variantId, input.variantId),
+        eq(sets.isDefault, true),
+        isNull(sets.deletedAt)
+      ),
+    });
+
+    const folder =
+      defaultFolder ??
+      (await db
+        .insert(sets)
+        .values({
+          teamId: input.teamId,
+          scopeType: 'variant',
+          productId: input.productId,
+          variantId: input.variantId,
+          isDefault: true,
+          name: 'Default',
+          description: 'All generations (auto-created)',
+          createdByUserId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null));
+
+    if (!folder) throw new Error('Failed to ensure default folder');
+
+    // Update generation input/schemaKey to the final values (pipeline may enrich input).
+    await db
+      .update(variantGenerations)
+      .set({ schemaKey: input.schemaKey, input: input.input ?? null, updatedAt: new Date() })
+      .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, createdGen.id)));
+
+    const createdImages = await db
+      .insert(variantImages)
+      .values(
+        (input.outputs ?? []).map((o) => ({
+          teamId: input.teamId,
+          variantId: input.variantId,
+          generationId: createdGen.id,
+          status: 'ready',
+          url: o.blobUrl,
+          prompt: (o.prompt ?? input.prompt ?? null) as any,
+          schemaKey: input.schemaKey,
+          input: input.input ?? null,
+          createdAt: new Date(),
+        }))
+      )
+      .returning();
+
+    if (createdImages.length > 0) {
+      await db.insert(setItems).values(
+        createdImages.map((img, idx) => ({
+          teamId: input.teamId,
+          setId: folder.id,
+          itemType: 'variant_image',
+          itemId: img.id,
+          sortOrder: idx,
+          addedByUserId: null,
+          createdAt: new Date(),
+        }))
+      );
+    }
+
+    const [updatedGen] = await db
+      .update(variantGenerations)
+      .set({ status: 'ready', updatedAt: new Date() })
+      .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, createdGen.id)))
+      .returning();
+
+    return { generation: updatedGen ?? createdGen, images: createdImages, folderId: folder.id };
+  } catch (err: any) {
+    const message = err?.message ? String(err.message).slice(0, 500) : 'Generation failed';
+    await db
+      .update(variantGenerations)
+      .set({ status: 'failed', errorMessage: message, updatedAt: new Date() })
+      .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, createdGen.id)));
+    throw err;
+  }
+}
+
 export type CreateVariantEditGeminiInput = {
   teamId: number;
   productId: number;

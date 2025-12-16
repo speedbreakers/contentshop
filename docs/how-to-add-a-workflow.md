@@ -11,12 +11,35 @@ Each workflow has a **workflow key** (persisted to DB as `variant_generations.sc
 - **Workflow router** (category/purpose → workflowKey): `lib/workflows/generation/resolve-workflow.ts`
 - **Workflow registry** (workflowKey → schema + prompt builder): `lib/workflows/generation/workflows.ts`
 - **API entrypoint** (uses router + registry): `app/api/products/[productId]/variants/[variantId]/generations/route.ts`
-- **Executor** (Gemini + Blob + DB persistence): `lib/db/generations.ts`
+- **Executors / persistence** (Gemini + Blob + DB persistence): `lib/db/generations.ts`
 - **UI purpose selector**: `app/(dashboard)/dashboard/products/[productId]/variants/[variantId]/page.tsx`
 
 --- 
 
 ## Step-by-step: adding a new workflow
+
+### Two supported workflow styles
+
+#### A) Prompt-only workflow (default)
+Most workflows simply provide:
+- `inputSchema`
+- `buildPrompt()`
+
+The API will call the generic executor which:
+- generates images with Gemini
+- uploads to Blob
+- persists `variant_generations` + `variant_images`
+- adds images to the Default folder
+
+#### B) Pipeline workflow via `execute()` (advanced)
+Some workflows need multiple model calls / steps (e.g. garment pipelines). For these, a workflow can provide:
+- `execute({ teamId, productId, variantId, requestOrigin, authCookie?, input, numberOfVariations })`
+
+When `execute()` is present, the API will call it instead of the prompt-only executor.
+
+Notes:
+- `authCookie` is passed by the API so pipeline steps can fetch **same-origin private URLs** (e.g. `/api/uploads/.../file`) without 401s.
+- Pipelines should still persist outputs via the shared DB helper so folder behavior stays consistent.
 
 ### Step 1) Decide the routing dimension(s)
 Every workflow is selected by **(category family × purpose)**.
@@ -65,10 +88,54 @@ Each workflow provides:
 - `key`: workflow key string
 - `inputSchema`: a zod schema for validation/normalization
 - `buildPrompt(...)`: builds a workflow-specific prompt (this is where behavior diverges)
+- optional `execute(...)`: pipeline implementation (when a single prompt is not enough)
 
 Notes:
 - For v1, many workflows can share `baseGenerationInputSchema`.
 - If a workflow requires extra inputs later, define a stricter `inputSchema` (extending base) and update UI to supply those fields.
+
+--- 
+
+## Reusable utilities (already implemented)
+
+These utilities were created for the Apparel Catalog pipeline and are intended to be reused by future workflows (apparel ads/infographics, etc.).
+
+### Shared helpers
+- `lib/ai/shared/image-fetch.ts`
+  - `resolveUrl(origin, url)`
+  - `fetchAsBytes(url, init?)`
+  - `buildSameOriginAuthHeaders({ requestOrigin, url, cookie })` (cookie-safe same-origin fetch)
+  - `coerceResultFileToBytes(file)`
+- `lib/ai/shared/json.ts`
+  - `extractJsonFromText(text)`
+  - `parseJsonWithSchema(text, schema)` (robust JSON extraction + zod parse)
+
+### Apparel pipeline step utilities (Apparel Catalog)
+- Step 1: classify views
+  - `lib/ai/apparel/classify-garment.ts`
+  - `classifyGarmentViews({ requestOrigin, productImageUrls, authCookie? })`
+- Step 2: optional masking
+  - `lib/ai/apparel/mask-garment.ts`
+  - `maskGarmentsIfNeeded({ requestOrigin, authCookie?, needMasking, frontUrl?, backUrl?, teamId, variantId, generationId })`
+- Step 3: garment analysis
+  - `lib/ai/apparel/analyze-garment.ts`
+  - `analyzeGarment({ requestOrigin, frontImageUrl, authCookie? })`
+  - Includes normalization so minor model output variations don’t crash the pipeline (e.g. gender/category synonyms).
+- Step 4: background resolution
+  - `lib/ai/background/extract-background.ts` (`extractBackgroundFromInstructions`)
+  - `lib/ai/background/resolve-catalog-background.ts` (`resolveCatalogBackground`, `STUDIO_DEFAULT_BACKGROUND`)
+- Step 5: final image generation
+  - `lib/ai/apparel/generate-catalog-images.ts`
+  - `generateApparelCatalogImages({ requestOrigin, authCookie?, teamId, variantId, generationId, numberOfVariations, garmentImageUrls, analysis, background_description, custom_instructions })`
+
+### Pipeline orchestrator (Apparel Catalog)
+- `lib/workflows/generation/apparel/catalog-execute.ts`
+  - `executeApparelCatalogWorkflow(...)` orchestrates steps 1–5 and persists outputs.
+
+### Persistence helpers (reusable)
+- `lib/db/generations.ts`
+  - `createVariantGenerationWithGeminiOutputs(...)` (prompt-only path)
+  - `createVariantGenerationWithProvidedOutputs(...)` (pipeline path; persists already-generated outputs and adds them to Default folder)
 
 --- 
 

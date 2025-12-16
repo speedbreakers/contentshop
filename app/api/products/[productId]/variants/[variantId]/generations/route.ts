@@ -91,10 +91,6 @@ export async function POST(
 
   const workflowInput = workflowOk.data;
   const schemaKey = workflow.key;
-  const prompt = workflow.buildPrompt({
-    input: workflowInput,
-    product: { title: product.title, category: product.category },
-  });
   const numberOfVariations = workflowInput.number_of_variations ?? 1;
 
   // Check credits before generation
@@ -130,18 +126,31 @@ export async function POST(
   }
 
   const requestOrigin = new URL(request.url).origin;
-  const created = await createVariantGenerationWithGeminiOutputs({
-    teamId: team.id,
-    productId: pid,
-    variantId: vid,
-    schemaKey,
-    input: workflowInput,
-    numberOfVariations,
-    prompt,
-    requestOrigin,
-    productTitle: product.title,
-    productCategory: product.category,
-  });
+  const created = workflow.execute
+    ? await workflow.execute({
+        teamId: team.id,
+        productId: pid,
+        variantId: vid,
+        requestOrigin,
+        authCookie: request.headers.get('cookie'),
+        input: workflowInput,
+        numberOfVariations,
+      })
+    : await createVariantGenerationWithGeminiOutputs({
+        teamId: team.id,
+        productId: pid,
+        variantId: vid,
+        schemaKey,
+        input: workflowInput,
+        numberOfVariations,
+        prompt: workflow.buildPrompt({
+          input: workflowInput,
+          product: { title: product.title, category: product.category },
+        }),
+        requestOrigin,
+        productTitle: product.title,
+        productCategory: product.category,
+      });
 
   // Deduct credits after successful generation
   const user = await getUser();

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BaseGenerationInput, GenerationWorkflow, GenerationWorkflowKey } from './types';
+import { executeApparelCatalogWorkflow } from './apparel/catalog-execute';
 
 export const baseGenerationInputSchema = z.object({
   product_images: z.array(z.string().min(1)).min(1),
@@ -108,7 +109,20 @@ function makeWorkflow(
 }
 
 export const generationWorkflows: Record<GenerationWorkflowKey, GenerationWorkflow<BaseGenerationInput>> = {
-  'apparel.catalog.v1': makeWorkflow('apparel.catalog.v1', 'apparel', 'catalog'),
+  'apparel.catalog.v1': {
+    ...makeWorkflow('apparel.catalog.v1', 'apparel', 'catalog'),
+    execute: async ({ teamId, productId, variantId, requestOrigin, authCookie, input, numberOfVariations }) =>
+      executeApparelCatalogWorkflow({
+        teamId,
+        productId,
+        variantId,
+        requestOrigin,
+        authCookie,
+        schemaKey: 'apparel.catalog.v1',
+        input,
+        numberOfVariations,
+      }),
+  },
   'apparel.ads.v1': makeWorkflow('apparel.ads.v1', 'apparel', 'ads'),
   'apparel.infographics.v1': makeWorkflow('apparel.infographics.v1', 'apparel', 'infographics'),
   'non_apparel.catalog.v1': makeWorkflow('non_apparel.catalog.v1', 'non_apparel', 'catalog'),
