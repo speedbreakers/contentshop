@@ -33,13 +33,55 @@ The API will call the generic executor which:
 
 #### B) Pipeline workflow via `execute()` (advanced)
 Some workflows need multiple model calls / steps (e.g. garment pipelines). For these, a workflow can provide:
-- `execute({ teamId, productId, variantId, requestOrigin, authCookie?, input, numberOfVariations })`
+- `execute({ teamId, productId, variantId, requestOrigin, authCookie?, moodboard?, input, numberOfVariations })`
 
 When `execute()` is present, the API will call it instead of the prompt-only executor.
 
 Notes:
 - `authCookie` is passed by the API so pipeline steps can fetch **same-origin private URLs** (e.g. `/api/uploads/.../file`) without 401s.
 - Pipelines should still persist outputs via the shared DB helper so folder behavior stays consistent.
+- Moodboards are resolved by the API and passed into `execute()` as a pre-built object containing style + reference images (see below).
+
+--- 
+
+## Moodboards: adding brand style during execution
+
+Moodboards let the user select a reusable **style profile** (typography + do-not rules) and **reference images** to influence generation.
+
+### How moodboards flow through the system
+
+1) **UI** sends `moodboard_id` inside the `input` for `POST /generations`.
+2) The API route (`app/api/products/[productId]/variants/[variantId]/generations/route.ts`) resolves the moodboard for the current team:
+   - fetches the moodboard row
+   - fetches attached assets
+   - produces signed, time-limited **same-origin** asset URLs (so executors can fetch them server-side)
+   - builds a text `styleAppendix` derived from the style profile (tone/font/case/rules/do-not)
+3) The API then:
+   - passes `moodboard` into `workflow.execute(...)` (pipeline path), OR
+   - passes `moodboardId`, `extraReferenceImageUrls`, and `style_appendix` into the generic executor (prompt-only path).
+
+### The `moodboard` object passed into `execute()`
+
+Executors receive a normalized object shaped like:
+- `id`, `name`
+- `styleProfile`: the raw JSON style profile
+- `assetFileIds`: ids of attached `uploaded_files`
+- `assetUrls`: signed URLs for each asset (same-origin)
+- `styleAppendix`: a compact prompt appendix (tone/font/case/rules/do-not)
+
+### Persisting moodboard data (recommended)
+
+For auditability, persist a snapshot in `variant_generations.input`:
+- `moodboard_snapshot`: `{ id, name, style_profile, asset_file_ids }`
+- optionally also persist `style_appendix` and any pipeline metadata
+
+If you’re using the shared persistence helpers:
+- Pass `moodboardId` to `createVariantGenerationWithProvidedOutputs(...)` (pipeline) or `createVariantGenerationWithGeminiOutputs(...)` (prompt-only)
+- Include `moodboard_snapshot` inside the `input` you persist
+
+This ensures:
+- the selected moodboard is queryable via `variant_generations.moodboard_id`
+- the exact style/asset selection is retained even if the moodboard changes later
 
 ### Step 1) Decide the routing dimension(s)
 Every workflow is selected by **(category family × purpose)**.
