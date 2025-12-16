@@ -303,11 +303,12 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
     const resolved = productImages.map((u) => resolveUrl(input.requestOrigin, String(u)));
     const referenceImages = await Promise.all(resolved.map(fetchAsBytes));
 
+    // The API now resolves a workflow-specific prompt (category × purpose).
+    // Keep this fallback for older callers.
     const prompt =
-      (input.prompt?.trim()
-        ? `Generate a studio-quality hero product image for \"${input.productTitle}\". ${input.prompt.trim()}`
-        : `Generate a studio-quality hero product image for \"${input.productTitle}\".`) +
-      ` Category: ${input.productCategory}.`;
+      input.prompt?.trim()
+        ? input.prompt.trim()
+        : `Generate a studio-quality hero product image for \"${input.productTitle}\". Category: ${input.productCategory}.`;
 
     const uploaded: Array<{ blobUrl: string; prompt: string }> = [];
 

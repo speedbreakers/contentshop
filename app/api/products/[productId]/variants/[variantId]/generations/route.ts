@@ -4,6 +4,11 @@ import { getProductById } from '@/lib/db/products';
 import { createVariantGenerationWithGeminiOutputs, listVariantGenerations } from '@/lib/db/generations';
 import { signVariantImageToken } from '@/lib/uploads/signing';
 import { checkCredits, deductCredits } from '@/lib/payments/credits';
+import {
+  baseGenerationInputSchema,
+  getGenerationWorkflow,
+  resolveGenerationWorkflowKey,
+} from '@/lib/workflows/generation';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -27,15 +32,7 @@ export async function GET(
   return Response.json({ items });
 }
 
-const unifiedInputSchema = z.object({
-  product_images: z.array(z.string().min(1)).min(1),
-  number_of_variations: z.number().int().min(1).max(10).default(1),
-  model_image: z.string().optional().default(''),
-  background_image: z.string().optional().default(''),
-  output_format: z.enum(['png', 'jpg', 'webp']).default('png'),
-  aspect_ratio: z.enum(['1:1', '4:5', '3:4', '16:9']).default('1:1'),
-  custom_instructions: z.string().optional().default(''),
-});
+const unifiedInputSchema = baseGenerationInputSchema;
 
 const createSchema = z.object({
   schemaKey: z.string().min(1).max(50),
@@ -77,10 +74,28 @@ export async function POST(
     );
   }
   const validatedInput = ok.data;
-  const schemaKey = 'hero_product.v1';
+  const workflowKey = resolveGenerationWorkflowKey({
+    productCategory: product.category,
+    purpose: validatedInput.purpose,
+  });
+  const workflow = getGenerationWorkflow(workflowKey);
+  if (!workflow) return Response.json({ error: 'Unsupported workflow' }, { status: 400 });
 
-  const prompt = validatedInput.custom_instructions || null;
-  const numberOfVariations = validatedInput.number_of_variations ?? 1;
+  const workflowOk = workflow.inputSchema.safeParse(validatedInput);
+  if (!workflowOk.success) {
+    return Response.json(
+      { error: workflowOk.error.issues[0]?.message ?? 'Invalid input' },
+      { status: 400 }
+    );
+  }
+
+  const workflowInput = workflowOk.data;
+  const schemaKey = workflow.key;
+  const prompt = workflow.buildPrompt({
+    input: workflowInput,
+    product: { title: product.title, category: product.category },
+  });
+  const numberOfVariations = workflowInput.number_of_variations ?? 1;
 
   // Check credits before generation
   const creditCheck = await checkCredits(team.id, 'image', numberOfVariations);
@@ -120,7 +135,7 @@ export async function POST(
     productId: pid,
     variantId: vid,
     schemaKey,
-    input: validatedInput,
+    input: workflowInput,
     numberOfVariations,
     prompt,
     requestOrigin,

@@ -125,6 +125,7 @@ export default function VariantAssetsPage() {
   const [genNumberOfVariations, setGenNumberOfVariations] = useState(1);
   const [genOutputFormat, setGenOutputFormat] = useState<'png' | 'jpg' | 'webp'>('png');
   const [genAspectRatio, setGenAspectRatio] = useState<'1:1' | '4:5' | '3:4' | '16:9'>('1:1');
+  const [genPurpose, setGenPurpose] = useState<'catalog' | 'ads'>('catalog');
   const [genCustomInstructions, setGenCustomInstructions] = useState('');
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
@@ -354,6 +355,7 @@ export default function VariantAssetsPage() {
 
     const input = {
       product_images: productImages,
+      purpose: genPurpose,
       model_image: genModelImageUrl.trim(),
       background_image: genBackgroundImageUrl.trim(),
       number_of_variations: n,
@@ -1238,6 +1240,18 @@ export default function VariantAssetsPage() {
                       </select>
                     </Field>
                   </div>
+                  <Field>
+                    <FieldLabel htmlFor="gen-purpose">Purpose</FieldLabel>
+                    <select
+                      id="gen-purpose"
+                      value={genPurpose}
+                      onChange={(e) => setGenPurpose(e.target.value as any)}
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="catalog">Catalog</option>
+                      <option value="ads">Ads</option>
+                    </select>
+                  </Field>
                 </div>
               </div>
 

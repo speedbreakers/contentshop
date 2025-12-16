@@ -5,4 +5,5 @@
 - description generation - Done
 - description workflow
 - invite team members email
-- credits system
+- credits system - Done
+- plan upgrade / downgrade flow
