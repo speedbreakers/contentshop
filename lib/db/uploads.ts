@@ -2,7 +2,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { db } from './drizzle';
 import { uploadedFiles } from './schema';
 
-export type UploadKind = 'garment' | 'product' | 'model' | 'background';
+export type UploadKind = 'garment' | 'product' | 'model' | 'background' | 'moodboard';
 
 export async function listUploadedFiles(teamId: number, kind?: UploadKind) {
   const where = kind

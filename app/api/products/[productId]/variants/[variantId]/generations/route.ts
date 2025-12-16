@@ -9,6 +9,8 @@ import {
   getGenerationWorkflow,
   resolveGenerationWorkflowKey,
 } from '@/lib/workflows/generation';
+import { getMoodboardById, listMoodboardAssets } from '@/lib/db/moodboards';
+import { signDownloadToken } from '@/lib/uploads/signing';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -93,6 +95,51 @@ export async function POST(
   const schemaKey = workflow.key;
   const numberOfVariations = workflowInput.number_of_variations ?? 1;
 
+  // Optional moodboard enrichment (style profile + reference images)
+  let moodboard: {
+    id: number;
+    name: string;
+    styleProfile: Record<string, unknown>;
+    assetFileIds: number[];
+    assetUrls: string[];
+    styleAppendix: string;
+  } | null = null;
+
+  if (workflowInput.moodboard_id) {
+    const mb = await getMoodboardById(team.id, Number(workflowInput.moodboard_id));
+    if (!mb) return Response.json({ error: 'Moodboard not found' }, { status: 404 });
+
+    const assets = await listMoodboardAssets(team.id, mb.id);
+    const exp = Date.now() + 1000 * 60 * 60;
+    const assetUrls = assets.map((a) => {
+      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
+      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
+    });
+
+    const profile = (mb.styleProfile ?? {}) as Record<string, unknown>;
+    const typography = (profile.typography ?? {}) as Record<string, unknown>;
+    const rules = Array.isArray((typography as any).rules) ? (typography as any).rules : [];
+    const doNot = Array.isArray((profile as any).do_not) ? (profile as any).do_not : [];
+    const styleAppendix = [
+      (typography as any).tone ? `Tone: ${(typography as any).tone}` : '',
+      (typography as any).font_family ? `Font family: ${(typography as any).font_family}` : '',
+      (typography as any).case ? `Text case: ${(typography as any).case}` : '',
+      rules.length ? `Typography rules: ${rules.join('; ')}` : '',
+      doNot.length ? `Do not: ${doNot.join('; ')}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    moodboard = {
+      id: mb.id,
+      name: mb.name,
+      styleProfile: profile,
+      assetFileIds: assets.map((a) => a.uploadedFileId),
+      assetUrls,
+      styleAppendix,
+    };
+  }
+
   // Check credits before generation
   const creditCheck = await checkCredits(team.id, 'image', numberOfVariations);
   
@@ -133,6 +180,7 @@ export async function POST(
         variantId: vid,
         requestOrigin,
         authCookie: request.headers.get('cookie'),
+        moodboard,
         input: workflowInput,
         numberOfVariations,
       })
@@ -141,12 +189,28 @@ export async function POST(
         productId: pid,
         variantId: vid,
         schemaKey,
-        input: workflowInput,
+        input: {
+          ...workflowInput,
+          moodboard_snapshot: moodboard
+            ? {
+                id: moodboard.id,
+                name: moodboard.name,
+                style_profile: moodboard.styleProfile,
+                asset_file_ids: moodboard.assetFileIds,
+              }
+            : null,
+          style_appendix: moodboard?.styleAppendix ?? '',
+        },
         numberOfVariations,
         prompt: workflow.buildPrompt({
-          input: workflowInput,
+          input: {
+            ...workflowInput,
+            style_appendix: moodboard?.styleAppendix ?? '',
+          } as any,
           product: { title: product.title, category: product.category },
         }),
+        moodboardId: moodboard?.id ?? null,
+        extraReferenceImageUrls: moodboard?.assetUrls ?? [],
         requestOrigin,
         productTitle: product.title,
         productCategory: product.category,

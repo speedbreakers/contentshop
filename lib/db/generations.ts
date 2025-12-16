@@ -43,12 +43,14 @@ export type CreateVariantGenerationInput = {
   input: any;
   numberOfVariations: number;
   prompt?: string | null;
+  moodboardId?: number | null;
 };
 
 export type CreateVariantGenerationGeminiInput = CreateVariantGenerationInput & {
   requestOrigin: string;
   productTitle: string;
   productCategory: string;
+  extraReferenceImageUrls?: string[];
 };
 
 export type ProvidedOutput = {
@@ -104,6 +106,7 @@ export async function createVariantGenerationWithProvidedOutputs(
         schemaKey: input.schemaKey,
         input: input.input ?? null,
         numberOfVariations: input.numberOfVariations,
+        moodboardId: input.moodboardId ?? null,
         provider: 'gemini',
         status: 'generating',
         createdAt: now,
@@ -149,7 +152,12 @@ export async function createVariantGenerationWithProvidedOutputs(
     // Update generation input/schemaKey to the final values (pipeline may enrich input).
     await db
       .update(variantGenerations)
-      .set({ schemaKey: input.schemaKey, input: input.input ?? null, updatedAt: new Date() })
+      .set({
+        schemaKey: input.schemaKey,
+        input: input.input ?? null,
+        moodboardId: input.moodboardId ?? null,
+        updatedAt: new Date(),
+      })
       .where(and(eq(variantGenerations.teamId, input.teamId), eq(variantGenerations.id, createdGen.id)));
 
     const createdImages = await db
@@ -403,6 +411,7 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
       schemaKey: input.schemaKey,
       input: input.input ?? null,
       numberOfVariations: input.numberOfVariations,
+      moodboardId: input.moodboardId ?? null,
       provider: 'gemini',
       status: 'generating',
       createdAt: now,
@@ -449,7 +458,11 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
       : [];
     if (productImages.length === 0) throw new Error('product_images is required');
 
-    const resolved = productImages.map((u) => resolveUrl(input.requestOrigin, String(u)));
+    const extra = Array.isArray(input.extraReferenceImageUrls) ? input.extraReferenceImageUrls : [];
+    const resolved = [
+      ...productImages.map((u) => resolveUrl(input.requestOrigin, String(u))),
+      ...extra.map((u) => resolveUrl(input.requestOrigin, String(u))),
+    ];
     const referenceImages = await Promise.all(resolved.map(fetchAsBytes));
 
     // The API now resolves a workflow-specific prompt (category × purpose).

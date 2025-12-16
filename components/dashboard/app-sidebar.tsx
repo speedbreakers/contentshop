@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useSWR, { mutate } from 'swr';
 import { useTheme } from 'next-themes';
-import { Box, LogOut, Moon, Settings, Shield, Sun, Activity, Users, Store, BarChart3, CreditCard } from 'lucide-react';
+import { Box, LogOut, Moon, Settings, Shield, Sun, Activity, Users, Store, BarChart3, CreditCard, Images } from 'lucide-react';
 import { CreditBalance } from '@/components/credits/credit-balance';
 
 import type { User } from '@/lib/db/schema';
@@ -113,6 +113,7 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   const isProducts = pathname.startsWith('/dashboard/products');
+  const isMoodboards = pathname.startsWith('/dashboard/moodboards');
   const isUsage = pathname.startsWith('/dashboard/usage');
   const isTeam = pathname === '/dashboard';
   const isGeneral = pathname.startsWith('/dashboard/general');
@@ -147,6 +148,14 @@ export function AppSidebar() {
                   <Link href="/dashboard/products">
                     <Box />
                     <span>Products</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isMoodboards} tooltip="Moodboards">
+                  <Link href="/dashboard/moodboards">
+                    <Images />
+                    <span>Moodboards</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

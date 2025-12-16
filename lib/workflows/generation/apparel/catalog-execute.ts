@@ -14,6 +14,14 @@ export async function executeApparelCatalogWorkflow(args: {
   variantId: number;
   requestOrigin: string;
   authCookie?: string | null;
+  moodboard?: {
+    id: number;
+    name: string;
+    styleProfile: Record<string, unknown>;
+    assetFileIds: number[];
+    assetUrls: string[];
+    styleAppendix: string;
+  } | null;
   schemaKey: string; // apparel.catalog.v1
   input: any; // validated input schema
   numberOfVariations: number;
@@ -109,6 +117,8 @@ export async function executeApparelCatalogWorkflow(args: {
     generationId: gen.id,
     numberOfVariations: args.numberOfVariations,
     garmentImageUrls,
+    moodboardImageUrls: args.moodboard?.assetUrls ?? [],
+    styleAppendix: args.moodboard?.styleAppendix ?? '',
     analysis,
     background_description: background.background_description,
     custom_instructions: customInstructions,
@@ -117,11 +127,20 @@ export async function executeApparelCatalogWorkflow(args: {
   // Persist pipeline metadata into generation input.
   const enrichedInput = {
     ...(args.input ?? {}),
+    moodboard_snapshot: args.moodboard
+      ? {
+          id: args.moodboard.id,
+          name: args.moodboard.name,
+          style_profile: args.moodboard.styleProfile,
+          asset_file_ids: args.moodboard.assetFileIds,
+        }
+      : null,
     pipeline: {
       classification,
       masking,
       analysis,
       background,
+      styleAppendix: args.moodboard?.styleAppendix ?? '',
       finalPrompt,
     },
   };
@@ -135,6 +154,7 @@ export async function executeApparelCatalogWorkflow(args: {
     numberOfVariations: args.numberOfVariations,
     prompt: finalPrompt,
     generationId: gen.id,
+    moodboardId: args.moodboard?.id ?? null,
     outputs: outputs.map((o) => ({ blobUrl: o.blobUrl, prompt: finalPrompt })),
   });
 

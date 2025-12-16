@@ -5,6 +5,7 @@ import { executeApparelCatalogWorkflow } from './apparel/catalog-execute';
 export const baseGenerationInputSchema = z.object({
   product_images: z.array(z.string().min(1)).min(1),
   purpose: z.enum(['catalog', 'ads', 'infographics']).default('catalog'),
+  moodboard_id: z.number().int().positive().optional().nullable().default(null),
   number_of_variations: z.number().int().min(1).max(10).default(1),
   model_image: z.string().optional().default(''),
   background_image: z.string().optional().default(''),
@@ -64,6 +65,7 @@ function buildPromptBase(args: {
   purpose: 'catalog' | 'ads' | 'infographics';
   categoryFamily: 'apparel' | 'non_apparel';
   customInstructions: string;
+  styleAppendix: string;
 }) {
   const purposeGuidelines =
     args.purpose === 'catalog'
@@ -81,6 +83,7 @@ function buildPromptBase(args: {
     `Generate an ecommerce product image for "${args.productTitle}".`,
     purposeGuidelines,
     categoryGuidelines,
+    args.styleAppendix.trim() ? `Brand style: ${args.styleAppendix.trim()}` : '',
     extra ? `Additional instructions: ${extra}` : '',
   ]
     .filter(Boolean)
@@ -104,6 +107,7 @@ function makeWorkflow(
         purpose,
         categoryFamily,
         customInstructions: input.custom_instructions ?? '',
+        styleAppendix: String((input as any)?.style_appendix ?? ''),
       }),
   };
 }

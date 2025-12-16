@@ -91,7 +91,7 @@ export const uploadedFiles = pgTable(
       .notNull()
       .references(() => teams.id),
 
-    kind: varchar('kind', { length: 30 }).notNull(), // garment|product|model|background
+    kind: varchar('kind', { length: 30 }).notNull(), // garment|product|model|background|moodboard
 
     // Vercel Blob result fields
     pathname: text('pathname').notNull(),
@@ -106,6 +106,63 @@ export const uploadedFiles = pgTable(
   (t) => ({
     teamIdx: index('uploaded_files_team_id_idx').on(t.teamId),
     teamKindIdx: index('uploaded_files_team_kind_idx').on(t.teamId, t.kind),
+  })
+);
+
+/**
+ * Moodboards (team-owned)
+ * - A selectable style + reference set applied per-generation.
+ * - Future: can optionally belong to a Brand for inheritance, without renaming.
+ */
+export const moodboards = pgTable(
+  'moodboards',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    styleProfile: jsonb('style_profile').notNull(),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (t) => ({
+    teamIdx: index('moodboards_team_id_idx').on(t.teamId),
+    teamDeletedIdx: index('moodboards_team_deleted_at_idx').on(t.teamId, t.deletedAt),
+  })
+);
+
+/**
+ * Moodboard assets: references to uploaded_files (moodboard reference images).
+ */
+export const moodboardAssets = pgTable(
+  'moodboard_assets',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    moodboardId: integer('moodboard_id')
+      .notNull()
+      .references(() => moodboards.id),
+    uploadedFileId: integer('uploaded_file_id')
+      .notNull()
+      .references(() => uploadedFiles.id),
+
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('moodboard_assets_team_id_idx').on(t.teamId),
+    moodboardIdx: index('moodboard_assets_moodboard_id_idx').on(t.moodboardId),
+    uniqueMoodboardFile: uniqueIndex('moodboard_assets_moodboard_file_unique').on(
+      t.moodboardId,
+      t.uploadedFileId
+    ),
   })
 );
 
@@ -260,6 +317,7 @@ export const variantGenerations = pgTable(
     schemaKey: varchar('schema_key', { length: 50 }).notNull(), // e.g. apparel.v1
     input: jsonb('input').notNull(),
     numberOfVariations: integer('number_of_variations').notNull().default(1),
+    moodboardId: integer('moodboard_id').references(() => moodboards.id),
 
     provider: varchar('provider', { length: 30 }).notNull().default('mock'),
     status: varchar('status', { length: 20 }).notNull().default('generating'), // generating|ready|failed
@@ -272,6 +330,7 @@ export const variantGenerations = pgTable(
     teamIdx: index('variant_generations_team_id_idx').on(t.teamId),
     variantIdx: index('variant_generations_variant_id_idx').on(t.variantId),
     statusIdx: index('variant_generations_status_idx').on(t.status),
+    moodboardIdx: index('variant_generations_moodboard_id_idx').on(t.moodboardId),
   })
 );
 
@@ -507,6 +566,7 @@ export const teamsRelations = relations(teams, ({ many }) => ({
   invitations: many(invitations),
   products: many(products),
   uploadedFiles: many(uploadedFiles),
+  moodboards: many(moodboards),
   sets: many(sets),
   teamCredits: many(teamCredits),
   usageRecords: many(usageRecords),
@@ -554,6 +614,29 @@ export const uploadedFilesRelations = relations(uploadedFiles, ({ one }) => ({
   team: one(teams, {
     fields: [uploadedFiles.teamId],
     references: [teams.id],
+  }),
+}));
+
+export const moodboardsRelations = relations(moodboards, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [moodboards.teamId],
+    references: [teams.id],
+  }),
+  assets: many(moodboardAssets),
+}));
+
+export const moodboardAssetsRelations = relations(moodboardAssets, ({ one }) => ({
+  team: one(teams, {
+    fields: [moodboardAssets.teamId],
+    references: [teams.id],
+  }),
+  moodboard: one(moodboards, {
+    fields: [moodboardAssets.moodboardId],
+    references: [moodboards.id],
+  }),
+  uploadedFile: one(uploadedFiles, {
+    fields: [moodboardAssets.uploadedFileId],
+    references: [uploadedFiles.id],
   }),
 }));
 
@@ -724,6 +807,10 @@ export type ActivityLog = typeof activityLogs.$inferSelect;
 export type NewActivityLog = typeof activityLogs.$inferInsert;
 export type UploadedFile = typeof uploadedFiles.$inferSelect;
 export type NewUploadedFile = typeof uploadedFiles.$inferInsert;
+export type Moodboard = typeof moodboards.$inferSelect;
+export type NewMoodboard = typeof moodboards.$inferInsert;
+export type MoodboardAsset = typeof moodboardAssets.$inferSelect;
+export type NewMoodboardAsset = typeof moodboardAssets.$inferInsert;
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
 export type Product = typeof products.$inferSelect;

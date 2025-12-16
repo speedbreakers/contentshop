@@ -126,14 +126,39 @@ export default function VariantAssetsPage() {
   const [genOutputFormat, setGenOutputFormat] = useState<'png' | 'jpg' | 'webp'>('png');
   const [genAspectRatio, setGenAspectRatio] = useState<'1:1' | '4:5' | '3:4' | '16:9'>('1:1');
   const [genPurpose, setGenPurpose] = useState<'catalog' | 'ads' | 'infographics'>('catalog');
+  const [genMoodboardId, setGenMoodboardId] = useState<number | null>(null);
   const [genCustomInstructions, setGenCustomInstructions] = useState('');
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
   const [genValidationError, setGenValidationError] = useState<string | null>(null);
   const [genSubmitError, setGenSubmitError] = useState<string | null>(null);
 
+  const [moodboards, setMoodboards] = useState<Array<{ id: number; name: string }>>([]);
+
   // Product images input (array of file URLs)
   const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '', '', '', '', '']);
+
+  // Load moodboards when the Generate modal opens.
+  // Note: `Dialog`'s `onOpenChange` is only fired for internal open/close events.
+  // If we open the modal by setting `generateOpen` state directly, `onOpenChange` won't run.
+  useEffect(() => {
+    if (!generateOpen) return;
+    fetch('/api/moodboards', { credentials: 'include', cache: 'no-store' })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(j?.error ?? `Failed to load moodboards (HTTP ${r.status})`);
+        return j;
+      })
+      .then((j) => {
+        const list = Array.isArray(j?.items) ? j.items : [];
+        setMoodboards(
+          list
+            .map((m: any) => ({ id: Number(m.id), name: String(m.name) }))
+            .filter((m: any) => Number.isFinite(m.id))
+        );
+      })
+      .catch(() => setMoodboards([]));
+  }, [generateOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -356,6 +381,7 @@ export default function VariantAssetsPage() {
     const input = {
       product_images: productImages,
       purpose: genPurpose,
+      moodboard_id: genMoodboardId,
       model_image: genModelImageUrl.trim(),
       background_image: genBackgroundImageUrl.trim(),
       number_of_variations: n,
@@ -1252,6 +1278,25 @@ export default function VariantAssetsPage() {
                       <option value="ads">Ads</option>
                       <option value="infographics">Infographics</option>
                     </select>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="gen-moodboard">Moodboard (optional)</FieldLabel>
+                    <select
+                      id="gen-moodboard"
+                      value={genMoodboardId ? String(genMoodboardId) : ''}
+                      onChange={(e) => setGenMoodboardId(e.target.value ? Number(e.target.value) : null)}
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="">None</option>
+                      {moodboards.map((m) => (
+                        <option key={m.id} value={String(m.id)}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                    <FieldDescription>
+                      Applies a saved style profile + reference images to this generation.
+                    </FieldDescription>
                   </Field>
                 </div>
               </div>

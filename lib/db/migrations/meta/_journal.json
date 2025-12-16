@@ -71,6 +71,13 @@
       "when": 1734282000000,
       "tag": "0009_team_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1765932000000,
+      "tag": "0010_moodboards",
+      "breakpoints": true
     }
   ]
 }

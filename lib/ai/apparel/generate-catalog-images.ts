@@ -16,6 +16,8 @@ export async function generateApparelCatalogImages(args: {
   generationId: number;
   numberOfVariations: number;
   garmentImageUrls: string[]; // typically front/back (masked if available)
+  moodboardImageUrls?: string[];
+  styleAppendix?: string;
   analysis: GarmentAnalysis;
   background_description: string;
   custom_instructions: string;
@@ -47,6 +49,7 @@ export async function generateApparelCatalogImages(args: {
       'Do not change color, logos, branding, or garment structure.',
       `Background: ${args.background_description}`,
       'Lighting: soft even studio lighting, realistic soft shadow.',
+      args.styleAppendix?.trim() ? `Brand style: ${args.styleAppendix.trim()}` : '',
       analysisBits,
       args.custom_instructions?.trim() ? `Additional instructions: ${args.custom_instructions.trim()}` : '',
     ]
@@ -54,6 +57,17 @@ export async function generateApparelCatalogImages(args: {
       .join(' ') + '';
 
   const outputs: GeneratedOutput[] = [];
+
+  const moodboardRefs = Array.isArray(args.moodboardImageUrls) ? args.moodboardImageUrls : [];
+  const moodboardImgs = await Promise.all(
+    moodboardRefs
+      .filter(Boolean)
+      .map((u) => resolveUrl(args.requestOrigin, String(u)))
+      .map(async (u) => {
+        const headers = buildSameOriginAuthHeaders({ requestOrigin: args.requestOrigin, url: u, cookie: args.authCookie });
+        return await fetchAsBytes(u, headers ? ({ headers } as any) : undefined);
+      })
+  );
 
   for (let idx = 0; idx < n; idx++) {
     const result: any = await generateText({
@@ -64,6 +78,7 @@ export async function generateApparelCatalogImages(args: {
           content: [
             { type: 'text', text: finalPrompt },
             ...imgs.map((ri) => ({ type: 'image', image: ri.bytes, mimeType: ri.mimeType })),
+            ...moodboardImgs.map((ri) => ({ type: 'image', image: ri.bytes, mimeType: ri.mimeType })),
           ],
         },
       ],
