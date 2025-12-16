@@ -26,6 +26,9 @@ This makes the workflow used for an image auditable and enables future reporting
 ### How to add a new workflow
 See [`docs/how-to-add-a-workflow.md`](docs/how-to-add-a-workflow.md) for the full step-by-step guide.
 
+### Shopify integration (storefronts + publishing)
+See [`docs/shopify-integration.md`](docs/shopify-integration.md) for the detailed implementation plan for multi-store Shopify sync, linking, and publishing generated assets back to variants.
+
 1. **Add the workflow key**
    - Update the `GenerationWorkflowKey` union in `lib/workflows/generation/types.ts`.
 

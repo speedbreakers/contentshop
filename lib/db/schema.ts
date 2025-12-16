@@ -560,6 +560,292 @@ export const usageRecords = pgTable(
   })
 );
 
+// ============================================================================
+// Commerce Integration Tables
+// ============================================================================
+
+/**
+ * Commerce Accounts (connected storefronts)
+ * - One row per connected storefront account per team.
+ * - Supports multiple providers: Shopify, Amazon, Meesho (future).
+ */
+export const commerceAccounts = pgTable(
+  'commerce_accounts',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+
+    provider: varchar('provider', { length: 20 }).notNull(), // shopify|amazon|meesho
+    displayName: varchar('display_name', { length: 255 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('connected'), // connected|disconnected
+
+    // Shopify-specific fields (nullable for other providers)
+    shopDomain: varchar('shop_domain', { length: 255 }), // e.g. mybrand.myshopify.com
+    accessToken: text('access_token'), // encrypted at rest
+    scopes: text('scopes'),
+    installedAt: timestamp('installed_at'),
+    appUninstalledAt: timestamp('app_uninstalled_at'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (t) => ({
+    teamIdx: index('commerce_accounts_team_id_idx').on(t.teamId),
+    teamProviderIdx: index('commerce_accounts_team_provider_idx').on(t.teamId, t.provider),
+    shopDomainUnique: uniqueIndex('commerce_accounts_shop_domain_unique').on(t.shopDomain),
+  })
+);
+
+/**
+ * External Products (mirror of products from external stores)
+ * - Lightweight mirror for linking UI (not full replication).
+ * - External products are per-account.
+ */
+export const externalProducts = pgTable(
+  'external_products',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    accountId: integer('account_id')
+      .notNull()
+      .references(() => commerceAccounts.id),
+
+    provider: varchar('provider', { length: 20 }).notNull(), // denormalized for queries
+    externalProductId: text('external_product_id').notNull(), // Shopify GID string
+
+    title: varchar('title', { length: 255 }),
+    handle: varchar('handle', { length: 255 }),
+    status: varchar('status', { length: 20 }), // active|draft|archived
+    productType: varchar('product_type', { length: 255 }),
+    vendor: varchar('vendor', { length: 255 }),
+    tags: text('tags'),
+    featuredImageUrl: text('featured_image_url'),
+    raw: jsonb('raw'), // optional: minimal snapshot
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('external_products_team_id_idx').on(t.teamId),
+    accountIdx: index('external_products_account_id_idx').on(t.accountId),
+    accountExternalUnique: uniqueIndex('external_products_account_external_unique').on(
+      t.accountId,
+      t.externalProductId
+    ),
+  })
+);
+
+/**
+ * External Variants (mirror of variants from external stores)
+ * - Lightweight mirror for linking UI.
+ * - Supports image ingestion via uploaded_file_id.
+ */
+export const externalVariants = pgTable(
+  'external_variants',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    accountId: integer('account_id')
+      .notNull()
+      .references(() => commerceAccounts.id),
+
+    provider: varchar('provider', { length: 20 }).notNull(), // denormalized
+    externalProductId: text('external_product_id').notNull(), // parent product GID
+    externalVariantId: text('external_variant_id').notNull(), // Shopify variant GID
+
+    title: varchar('title', { length: 255 }),
+    sku: varchar('sku', { length: 120 }),
+    price: varchar('price', { length: 50 }),
+    selectedOptions: jsonb('selected_options'), // [{name, value}, ...]
+    featuredImageUrl: text('featured_image_url'), // Original Shopify CDN URL
+    uploadedFileId: integer('uploaded_file_id').references(() => uploadedFiles.id), // Ingested copy
+    raw: jsonb('raw'),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('external_variants_team_id_idx').on(t.teamId),
+    accountIdx: index('external_variants_account_id_idx').on(t.accountId),
+    externalProductIdx: index('external_variants_external_product_idx').on(
+      t.accountId,
+      t.externalProductId
+    ),
+    accountVariantUnique: uniqueIndex('external_variants_account_variant_unique').on(
+      t.accountId,
+      t.externalVariantId
+    ),
+  })
+);
+
+/**
+ * Product Links (canonical product ↔ external product)
+ * - Links ContentShop canonical products to external store products.
+ * - Constraint: one external product can link to only one canonical.
+ */
+export const productLinks = pgTable(
+  'product_links',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+    accountId: integer('account_id')
+      .notNull()
+      .references(() => commerceAccounts.id),
+
+    provider: varchar('provider', { length: 20 }).notNull(),
+    externalProductId: text('external_product_id').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('linked'), // linked|broken|unlinked
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('product_links_team_id_idx').on(t.teamId),
+    productIdx: index('product_links_product_id_idx').on(t.productId),
+    accountIdx: index('product_links_account_id_idx').on(t.accountId),
+    // External product can link to only one canonical product
+    accountExternalUnique: uniqueIndex('product_links_account_external_unique').on(
+      t.accountId,
+      t.externalProductId
+    ),
+  })
+);
+
+/**
+ * Variant Links (canonical variant ↔ external variant)
+ * - Links ContentShop canonical variants to external store variants.
+ * - Constraint: one external variant can link to only one canonical.
+ */
+export const variantLinks = pgTable(
+  'variant_links',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    variantId: integer('variant_id')
+      .notNull()
+      .references(() => productVariants.id),
+    accountId: integer('account_id')
+      .notNull()
+      .references(() => commerceAccounts.id),
+
+    provider: varchar('provider', { length: 20 }).notNull(),
+    externalProductId: text('external_product_id').notNull(),
+    externalVariantId: text('external_variant_id').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('linked'), // linked|broken|unlinked
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('variant_links_team_id_idx').on(t.teamId),
+    variantIdx: index('variant_links_variant_id_idx').on(t.variantId),
+    accountIdx: index('variant_links_account_id_idx').on(t.accountId),
+    // External variant can link to only one canonical variant
+    accountVariantUnique: uniqueIndex('variant_links_account_variant_unique').on(
+      t.accountId,
+      t.externalVariantId
+    ),
+  })
+);
+
+/**
+ * Asset Publications (publish history)
+ * - Tracks each publish attempt of a generated image to an external variant.
+ * - Stores remote media ID on success for reference.
+ */
+export const assetPublications = pgTable(
+  'asset_publications',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    accountId: integer('account_id')
+      .notNull()
+      .references(() => commerceAccounts.id),
+
+    provider: varchar('provider', { length: 20 }).notNull(),
+    productId: integer('product_id').references(() => products.id), // canonical
+    variantId: integer('variant_id').references(() => productVariants.id), // canonical
+    variantImageId: integer('variant_image_id')
+      .notNull()
+      .references(() => variantImages.id),
+
+    externalProductId: text('external_product_id').notNull(),
+    externalVariantId: text('external_variant_id').notNull(),
+
+    remoteMediaId: text('remote_media_id'), // Shopify media GID on success
+    remoteResourceVersion: text('remote_resource_version'),
+    status: varchar('status', { length: 20 }).notNull().default('pending'), // pending|success|failed
+    error: text('error'),
+    attempts: integer('attempts').notNull().default(1),
+
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('asset_publications_team_id_idx').on(t.teamId),
+    accountIdx: index('asset_publications_account_id_idx').on(t.accountId),
+    variantImageIdx: index('asset_publications_variant_image_idx').on(t.variantImageId),
+    statusIdx: index('asset_publications_status_idx').on(t.status),
+  })
+);
+
+/**
+ * Commerce Jobs (background job queue)
+ * - Tracks sync, publish, and other commerce operations.
+ * - Progress stored as jsonb for chunked operations.
+ */
+export const commerceJobs = pgTable(
+  'commerce_jobs',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    accountId: integer('account_id')
+      .notNull()
+      .references(() => commerceAccounts.id),
+
+    provider: varchar('provider', { length: 20 }).notNull(),
+    type: varchar('type', { length: 50 }).notNull(), // shopify.catalog_sync|shopify.publish_variant_media
+    status: varchar('status', { length: 20 }).notNull().default('queued'), // queued|running|success|failed|canceled
+
+    progress: jsonb('progress'), // { cursor, processed, total }
+    error: text('error'),
+    metadata: jsonb('metadata'), // job-specific data
+
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('commerce_jobs_team_id_idx').on(t.teamId),
+    accountIdx: index('commerce_jobs_account_id_idx').on(t.accountId),
+    statusIdx: index('commerce_jobs_status_idx').on(t.status),
+    typeStatusIdx: index('commerce_jobs_type_status_idx').on(t.type, t.status),
+  })
+);
+
+// ============================================================================
+// Relations
+// ============================================================================
+
 export const teamsRelations = relations(teams, ({ many }) => ({
   teamMembers: many(teamMembers),
   activityLogs: many(activityLogs),
@@ -570,6 +856,13 @@ export const teamsRelations = relations(teams, ({ many }) => ({
   sets: many(sets),
   teamCredits: many(teamCredits),
   usageRecords: many(usageRecords),
+  commerceAccounts: many(commerceAccounts),
+  externalProducts: many(externalProducts),
+  externalVariants: many(externalVariants),
+  productLinks: many(productLinks),
+  variantLinks: many(variantLinks),
+  assetPublications: many(assetPublications),
+  commerceJobs: many(commerceJobs),
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -797,6 +1090,111 @@ export const setEventsRelations = relations(setEvents, ({ one }) => ({
   }),
 }));
 
+// Commerce Relations
+export const commerceAccountsRelations = relations(commerceAccounts, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [commerceAccounts.teamId],
+    references: [teams.id],
+  }),
+  externalProducts: many(externalProducts),
+  externalVariants: many(externalVariants),
+  productLinks: many(productLinks),
+  variantLinks: many(variantLinks),
+  assetPublications: many(assetPublications),
+  jobs: many(commerceJobs),
+}));
+
+export const externalProductsRelations = relations(externalProducts, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [externalProducts.teamId],
+    references: [teams.id],
+  }),
+  account: one(commerceAccounts, {
+    fields: [externalProducts.accountId],
+    references: [commerceAccounts.id],
+  }),
+  variants: many(externalVariants),
+}));
+
+export const externalVariantsRelations = relations(externalVariants, ({ one }) => ({
+  team: one(teams, {
+    fields: [externalVariants.teamId],
+    references: [teams.id],
+  }),
+  account: one(commerceAccounts, {
+    fields: [externalVariants.accountId],
+    references: [commerceAccounts.id],
+  }),
+  uploadedFile: one(uploadedFiles, {
+    fields: [externalVariants.uploadedFileId],
+    references: [uploadedFiles.id],
+  }),
+}));
+
+export const productLinksRelations = relations(productLinks, ({ one }) => ({
+  team: one(teams, {
+    fields: [productLinks.teamId],
+    references: [teams.id],
+  }),
+  product: one(products, {
+    fields: [productLinks.productId],
+    references: [products.id],
+  }),
+  account: one(commerceAccounts, {
+    fields: [productLinks.accountId],
+    references: [commerceAccounts.id],
+  }),
+}));
+
+export const variantLinksRelations = relations(variantLinks, ({ one }) => ({
+  team: one(teams, {
+    fields: [variantLinks.teamId],
+    references: [teams.id],
+  }),
+  variant: one(productVariants, {
+    fields: [variantLinks.variantId],
+    references: [productVariants.id],
+  }),
+  account: one(commerceAccounts, {
+    fields: [variantLinks.accountId],
+    references: [commerceAccounts.id],
+  }),
+}));
+
+export const assetPublicationsRelations = relations(assetPublications, ({ one }) => ({
+  team: one(teams, {
+    fields: [assetPublications.teamId],
+    references: [teams.id],
+  }),
+  account: one(commerceAccounts, {
+    fields: [assetPublications.accountId],
+    references: [commerceAccounts.id],
+  }),
+  product: one(products, {
+    fields: [assetPublications.productId],
+    references: [products.id],
+  }),
+  variant: one(productVariants, {
+    fields: [assetPublications.variantId],
+    references: [productVariants.id],
+  }),
+  variantImage: one(variantImages, {
+    fields: [assetPublications.variantImageId],
+    references: [variantImages.id],
+  }),
+}));
+
+export const commerceJobsRelations = relations(commerceJobs, ({ one }) => ({
+  team: one(teams, {
+    fields: [commerceJobs.teamId],
+    references: [teams.id],
+  }),
+  account: one(commerceAccounts, {
+    fields: [commerceJobs.accountId],
+    references: [commerceAccounts.id],
+  }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
@@ -842,6 +1240,22 @@ export type TeamDataWithMembers = Team & {
     user: Pick<User, 'id' | 'name' | 'email'>;
   })[];
 };
+
+// Commerce types
+export type CommerceAccount = typeof commerceAccounts.$inferSelect;
+export type NewCommerceAccount = typeof commerceAccounts.$inferInsert;
+export type ExternalProduct = typeof externalProducts.$inferSelect;
+export type NewExternalProduct = typeof externalProducts.$inferInsert;
+export type ExternalVariant = typeof externalVariants.$inferSelect;
+export type NewExternalVariant = typeof externalVariants.$inferInsert;
+export type ProductLink = typeof productLinks.$inferSelect;
+export type NewProductLink = typeof productLinks.$inferInsert;
+export type VariantLink = typeof variantLinks.$inferSelect;
+export type NewVariantLink = typeof variantLinks.$inferInsert;
+export type AssetPublication = typeof assetPublications.$inferSelect;
+export type NewAssetPublication = typeof assetPublications.$inferInsert;
+export type CommerceJob = typeof commerceJobs.$inferSelect;
+export type NewCommerceJob = typeof commerceJobs.$inferInsert;
 
 export enum ActivityType {
   SIGN_UP = 'SIGN_UP',
