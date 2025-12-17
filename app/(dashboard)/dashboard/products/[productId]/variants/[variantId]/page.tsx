@@ -8,7 +8,8 @@ import useSWR from 'swr';
 import { fetchJson } from '@/lib/swr/fetcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight, ImageIcon } from 'lucide-react';
+import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight, ImageIcon, RefreshCw, Loader2 } from 'lucide-react';
+import { GenerationProgress, type GenerationJobData } from '@/components/generation-progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -187,8 +188,8 @@ export default function VariantAssetsPage() {
 
       const activeFolderId =
         (setsList.find((s) => (s as any).isDefault)?.id ?? setsList[0]?.id ?? null) as
-          | number
-          | null;
+        | number
+        | null;
 
       return {
         product: mappedProduct,
@@ -272,6 +273,19 @@ export default function VariantAssetsPage() {
   const [editReferenceImageUrl, setEditReferenceImageUrl] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Active generation job tracking (for polling)
+  type ActiveJob = {
+    id: number;
+    type: 'generation' | 'edit';
+    status: string;
+    progress?: { current: number; total: number };
+    error?: string;
+    draftIds: number[];
+    targetSetId: number;
+    label: string;
+  };
+  const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
+
   const [generateOpen, setGenerateOpen] = useState(false);
   const [newSetOpen, setNewSetOpen] = useState(false);
   const [renameSetId, setRenameSetId] = useState<number | null>(null);
@@ -282,6 +296,8 @@ export default function VariantAssetsPage() {
   const [searchFolders, setSearchFolders] = useState('');
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [fetchMessage, setFetchMessage] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [activeJobData, setActiveJobData] = useState<GenerationJobData | null>(null);
 
   const [deleteId, setDeleteId] = useState<{ kind: 'set' | 'setItem'; id: number; setId?: number } | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -310,7 +326,7 @@ export default function VariantAssetsPage() {
   }, [moodboardsData]);
 
   // Product images input (array of file URLs)
-  const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '', '', '', '', '']);
+  const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '']);
 
   useEffect(() => {
     if (initError) {
@@ -418,6 +434,192 @@ export default function VariantAssetsPage() {
       .join(', ');
   }
 
+  // Polling effect for active generation jobs
+  useEffect(() => {
+    if (!activeJob) return;
+
+    const pollJob = async () => {
+      try {
+        const res = await fetch(`/api/generation-jobs/${activeJob.id}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error ?? `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const job = data?.job;
+        const images: any[] = Array.isArray(data?.images) ? data.images : [];
+
+        if (!job) throw new Error('Job not found');
+
+        // Update progress in state
+        setActiveJob((prev) => prev ? {
+          ...prev,
+          status: job.status,
+          progress: job.progress ?? prev.progress,
+          error: job.error,
+        } : null);
+
+        // Update active job data for the progress component
+        setActiveJobData({
+          id: job.id,
+          type: job.type,
+          status: job.status,
+          progress: job.progress,
+          error: job.error,
+          metadata: job.metadata,
+          generationId: job.generationId,
+          createdAt: job.createdAt,
+          completedAt: job.completedAt,
+        });
+
+        // Update progress message
+        if (job.status === 'running' && job.progress) {
+          setSyncMessage(`Generating ${job.progress.current}/${job.progress.total} images...`);
+        } else if (job.status === 'queued') {
+          setSyncMessage('Generation queued, waiting to start...');
+        }
+
+        // Update images in UI as they complete
+        if (images.length > 0) {
+          const targetSetId = activeJob.targetSetId;
+          const newItems: FakeSetItem[] = images.map((img, idx) => ({
+            id: Number(img.id),
+            setId: targetSetId,
+            createdAt: String(img.createdAt ?? new Date().toISOString()),
+            label: `${activeJob.label} ${idx + 1}`,
+            status: 'ready',
+            url: String(img.url),
+            prompt: String(img.prompt ?? ''),
+            schemaKey: String(img.schemaKey ?? 'hero_product.v1'),
+            input: img.input ?? null,
+            isSelected: false,
+          }));
+
+          // Replace drafts with actual images
+          setItemsBySetId((prev) => {
+            const currentItems = prev[targetSetId] ?? [];
+            // Keep items that aren't drafts
+            const nonDrafts = currentItems.filter((i) => !activeJob.draftIds.includes(i.id) && !newItems.some((ni) => ni.id === i.id));
+            // Add new items at the front
+            return {
+              ...prev,
+              [targetSetId]: [...newItems, ...nonDrafts],
+            };
+          });
+        }
+
+        // Check if job is complete
+        if (job.status === 'success') {
+          setActiveJob(null);
+          setIsGenerating(false);
+          setSyncMessage(`Generated ${images.length} image(s).`);
+          refreshCredits();
+          // Keep activeJobData for showing download button
+        } else if (job.status === 'failed') {
+          // Remove drafts on failure
+          setItemsBySetId((prev) => ({
+            ...prev,
+            [activeJob.targetSetId]: (prev[activeJob.targetSetId] ?? []).filter((i) => !activeJob.draftIds.includes(i.id)),
+          }));
+          setActiveJob(null);
+          setIsGenerating(false);
+          setGenSubmitError(`Generation failed: ${job.error || 'Unknown error'}`);
+          setSyncMessage(job.error || 'Generation failed.');
+          // Keep activeJobData for showing retry button
+        }
+      } catch (err: any) {
+        console.error('Job polling error:', err);
+      }
+    };
+
+    // Start polling
+    const interval = setInterval(pollJob, 2000);
+    // Also poll immediately
+    pollJob();
+
+    return () => clearInterval(interval);
+  }, [activeJob?.id]);
+
+  // Retry failed job handler
+  async function handleRetryJob(jobId: number) {
+    if (!defaultSetId) return;
+
+    setIsRetrying(true);
+    try {
+      const res = await fetch(`/api/generation-jobs/${jobId}/retry`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error ?? 'Retry failed');
+      }
+
+      // If we get a new job, start tracking it
+      if (data?.job?.id) {
+        const newJob = data.job;
+        const label = activeJobData?.type === 'image_edit' ? 'edited-image' : 'generated-image';
+        const n = activeJobData?.metadata?.numberOfVariations ?? 1;
+
+        // Create draft items for the new job
+        const now = new Date().toISOString();
+        const baseDraftId = -Date.now();
+        const draftIds: number[] = [];
+        const drafts: FakeSetItem[] = Array.from({ length: n }).map((_, idx) => {
+          const id = baseDraftId - idx;
+          draftIds.push(id);
+          return {
+            id,
+            setId: defaultSetId,
+            createdAt: now,
+            label: `${label} ${idx + 1}`,
+            status: 'generating',
+            url: placeholderUrl('Generating…', Math.abs(id), 640),
+            prompt: '',
+            schemaKey: 'hero_product.v1',
+            input: {},
+            isSelected: false,
+          };
+        });
+
+        setItemsBySetId((prev) => ({
+          ...prev,
+          [defaultSetId]: [...drafts, ...(prev[defaultSetId] ?? [])],
+        }));
+
+        setIsGenerating(true);
+        setSyncMessage('Retry queued, waiting to start...');
+        setActiveJob({
+          id: newJob.id,
+          type: activeJobData?.type === 'image_edit' ? 'edit' : 'generation',
+          status: newJob.status,
+          progress: { current: 0, total: n },
+          draftIds,
+          targetSetId: defaultSetId,
+          label,
+        });
+        setActiveJobData({
+          id: newJob.id,
+          type: activeJobData?.type ?? 'image_generation',
+          status: newJob.status,
+          progress: { current: 0, total: n },
+          error: null,
+          metadata: activeJobData?.metadata ?? null,
+          createdAt: newJob.createdAt,
+        });
+      }
+    } catch (err: any) {
+      setSyncMessage(`Retry failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setIsRetrying(false);
+    }
+  }
+
+  // Close generation progress
+  function handleCloseProgress() {
+    setActiveJobData(null);
+  }
+
   function toggleSetItemSelected(setId: number, itemId: number) {
     setItemsBySetId((prev) => ({
       ...prev,
@@ -494,6 +696,26 @@ export default function VariantAssetsPage() {
         throw new Error(msg);
       }
 
+      // Handle job-based response (status 202)
+      if (res.status === 202 && data?.job?.id) {
+        const job = data.job;
+        setSyncMessage('Generation queued, waiting to start...');
+
+        // Start tracking the job for polling
+        setActiveJob({
+          id: job.id,
+          type: 'generation',
+          status: job.status,
+          progress: { current: 0, total: n },
+          draftIds,
+          targetSetId: defaultSetId,
+          label,
+        });
+
+        return true;
+      }
+
+      // Legacy: handle immediate response (if any still exist)
       const images: any[] = Array.isArray(data?.images) ? data.images : [];
       const created: FakeSetItem[] = images.map((img, idx) => ({
         id: Number(img.id),
@@ -589,6 +811,27 @@ export default function VariantAssetsPage() {
         throw new Error(data?.error ? String(data.error) : `Edit failed (HTTP ${res.status})`);
       }
 
+      // Handle job-based response (status 202)
+      if (res.status === 202 && data?.job?.id) {
+        const job = data.job;
+        setSyncMessage('Edit queued, waiting to start...');
+        setLightbox(null);
+
+        // Start tracking the job for polling
+        setActiveJob({
+          id: job.id,
+          type: 'edit',
+          status: job.status,
+          progress: { current: 0, total: 1 },
+          draftIds: [draftId],
+          targetSetId: targetFolderId,
+          label,
+        });
+
+        return;
+      }
+
+      // Legacy: handle immediate response (if any still exist)
       const img = data?.image;
       if (!img) throw new Error('Edit failed (missing image)');
 
@@ -853,7 +1096,7 @@ export default function VariantAssetsPage() {
             </div>
             <div>
               <h1 className="text-lg lg:text-2xl font-medium">{variant.title}</h1>
-              <div className="mt-2 text-sm text-muted-foreground">
+              <div className="text-sm text-muted-foreground">
                 {variant.sku ? <span>SKU: {variant.sku}</span> : null}
               </div>
             </div>
@@ -867,7 +1110,18 @@ export default function VariantAssetsPage() {
         </div>
 
         {fetchMessage ? <p className="text-xs text-muted-foreground mt-2">{fetchMessage}</p> : null}
-        {syncMessage ? <p className="text-xs text-muted-foreground mt-1">{syncMessage}</p> : null}
+
+        {/* Generation Progress */}
+        {activeJobData && (
+          <div className="mt-4">
+            <GenerationProgress
+              job={activeJobData}
+              onRetry={handleRetryJob}
+              onClose={handleCloseProgress}
+              isRetrying={isRetrying}
+            />
+          </div>
+        )}
       </div>
 
       {/* Linked Storefronts */}
@@ -1105,40 +1359,40 @@ export default function VariantAssetsPage() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    setRenameItem({ setId: i.setId, itemId: i.id });
-                                    setRenameItemName(i.label);
-                                  }}
-                                >
-                                  Rename image
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() => downloadImage(i)}
-                                  disabled={i.status !== 'ready'}
-                                >
-                                  Download image
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  onSelect={() =>
-                                    (() => {
-                                      setDeleteId({ kind: 'setItem', id: i.id, setId: i.setId });
-                                    })()
-                                  }
-                                >
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setRenameItem({ setId: i.setId, itemId: i.id });
+                                      setRenameItemName(i.label);
+                                    }}
+                                  >
+                                    Rename image
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={() => downloadImage(i)}
+                                    disabled={i.status !== 'ready'}
+                                  >
+                                    Download image
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    variant="destructive"
+                                    onSelect={() =>
+                                      (() => {
+                                        setDeleteId({ kind: 'setItem', id: i.id, setId: i.setId });
+                                      })()
+                                    }
+                                  >
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
+                        ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
             </div>
           </CardContent>
 
@@ -1215,12 +1469,12 @@ export default function VariantAssetsPage() {
             <FieldGroup>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Left: required inputs */}
-                <div className="space-y-4 border-r">
+                <div className="space-y-4 pr-4 border-r">
                   <div className="space-y-2">
                     <div className="text-sm font-medium">
                       Product images <span className="text-red-500">*</span>
                     </div>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="grid grid-cols-6 gap-2">
                       {genProductImages.map((url, idx) => (
                         <div key={idx} className="flex gap-2">
                           <div className="flex-1">
@@ -1241,13 +1495,9 @@ export default function VariantAssetsPage() {
                       <div className="text-sm text-red-600">{genValidationError}</div>
                     ) : null}
                   </div>
-                </div>
-
-                {/* Right: optional context + settings */}
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <AssetPickerField
-                      label="Model image (optional)"
+                      label="Model image"
                       value={genModelImageUrl}
                       onChange={setGenModelImageUrl}
                       kind="model"
@@ -1255,7 +1505,7 @@ export default function VariantAssetsPage() {
                       templateKind="model"
                     />
                     <AssetPickerField
-                      label="Background image (optional)"
+                      label="Background image"
                       value={genBackgroundImageUrl}
                       onChange={setGenBackgroundImageUrl}
                       kind="background"
@@ -1264,6 +1514,10 @@ export default function VariantAssetsPage() {
                     />
                   </div>
 
+                </div>
+
+                {/* Right: optional context + settings */}
+                <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field>
                       <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>

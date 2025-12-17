@@ -4,6 +4,7 @@ import { useState, useEffect, use, useCallback } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import useSWR, { mutate } from 'swr';
+import { swrFetcher } from '@/lib/swr/fetcher';
 import {
   ArrowLeft,
   Search,
@@ -755,7 +756,7 @@ function ProductRow({
     isExpanded
       ? `/api/commerce/accounts/${accountId}/variants?product_id=${encodeURIComponent(product.externalProductId)}`
       : null,
-    fetcher
+    swrFetcher
   );
 
   const variants = variantsData?.variants ?? [];

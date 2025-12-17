@@ -1,3 +1,4 @@
+Product:
 - add product modal - Done
 - description generation - Done
 - credits system - Done
@@ -11,8 +12,8 @@
 - Sync modal - on clicking sync the button keeps showing starting... - Done
 - clicking on storefront should take inside - Done
 - useSwr everywhere - Done
+- generating 10 images results in timeout on the frontend - Done
 
-- stripe
 - aspect ratio setting
 - non-garment / infographics workflow implementation
 - description workflow implementation
@@ -21,7 +22,12 @@
 - model and background library
 - add better loaders
 - onboarding
-- generating 10 images results in timeout on the frontend
+- if the user gives custom instructions for every generation in one text how do you handle that
+- change all id fields to ulid
 
 UI Issues:
 - review copy (some parts are difficult to understand)
+
+Business:
+- stripe setup
+- change gemini creds on ai gateway

@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import { getTeamForUser, getUser } from '@/lib/db/queries';
 import { getProductById } from '@/lib/db/products';
-import { createVariantEditWithGeminiOutput } from '@/lib/db/generations';
-import { signVariantImageToken } from '@/lib/uploads/signing';
 import { checkCredits, deductCredits } from '@/lib/payments/credits';
+import { createGenerationJob, countActiveGenerationJobsForTeam } from '@/lib/db/generation-jobs';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -77,47 +76,73 @@ export async function POST(
     }
   }
 
-  const requestOrigin = new URL(request.url).origin;
-  const baseLabel = parsed.data.base_label?.trim() ? String(parsed.data.base_label).trim() : 'image';
-  const outputLabel = `edited-${baseLabel}`;
-  const created = await createVariantEditWithGeminiOutput({
-    teamId: team.id,
-    productId: pid,
-    variantId: vid,
-    schemaKey: 'edit.v1',
-    targetSetId: parsed.data.target_set_id,
-    input: {
-      base_image_url: parsed.data.base_image_url,
-      reference_image_url: parsed.data.reference_image_url,
-      edit_instructions: parsed.data.edit_instructions,
-      base_label: baseLabel,
-      output_label: outputLabel,
-    },
-    prompt: parsed.data.edit_instructions,
-    requestOrigin,
-    productTitle: product.title,
-    productCategory: product.category,
-  });
+  // Rate limit: max 3 active generation jobs per team
+  const activeJobCount = await countActiveGenerationJobsForTeam(team.id);
+  if (activeJobCount >= 3) {
+    return Response.json(
+      { error: 'Too many active generation jobs. Please wait for existing jobs to complete.' },
+      { status: 429 }
+    );
+  }
 
-  // Deduct credits after successful edit
+  const requestOrigin = new URL(request.url).origin;
   const user = await getUser();
+
+  // Deduct credits immediately (before queuing)
   if (creditCheck.creditsId) {
     await deductCredits(team.id, user?.id ?? null, 'image', numberOfVariations, {
       isOverage: creditCheck.isOverage,
       creditsId: creditCheck.creditsId,
       referenceType: 'variant_edit',
-      referenceId: created.generation.id,
+      referenceId: undefined, // Will be updated when job completes
     });
   }
 
-  const exp = Date.now() + 1000 * 60 * 60; // 1 hour
-  const sig = signVariantImageToken({ imageId: created.image.id, teamId: team.id, exp });
-  const image = {
-    ...created.image,
-    url: `/api/variant-images/${created.image.id}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`,
-  };
+  const baseLabel = parsed.data.base_label?.trim() ? String(parsed.data.base_label).trim() : 'image';
+  const outputLabel = `edited-${baseLabel}`;
 
-  return Response.json({ generation: created.generation, image, folderId: created.folderId }, { status: 201 });
+  // Create a job instead of processing synchronously
+  const job = await createGenerationJob(team.id, {
+    productId: pid,
+    variantId: vid,
+    type: 'image_edit',
+    metadata: {
+      schemaKey: 'edit.v1',
+      targetSetId: parsed.data.target_set_id,
+      input: {
+        base_image_url: parsed.data.base_image_url,
+        reference_image_url: parsed.data.reference_image_url,
+        edit_instructions: parsed.data.edit_instructions,
+        base_label: baseLabel,
+        output_label: outputLabel,
+      },
+      prompt: parsed.data.edit_instructions,
+      requestOrigin,
+      authCookie: request.headers.get('cookie'),
+      productTitle: product.title,
+      productCategory: product.category,
+      numberOfVariations: 1,
+      // Store credit info for reference
+      creditsId: creditCheck.creditsId,
+      isOverage: creditCheck.isOverage,
+    },
+  });
+
+  if (!job) {
+    return Response.json({ error: 'Failed to create edit job' }, { status: 500 });
+  }
+
+  return Response.json(
+    {
+      job: {
+        id: job.id,
+        status: job.status,
+        createdAt: job.createdAt,
+      },
+      message: 'Edit job queued successfully',
+    },
+    { status: 202 }
+  );
 }
 
 

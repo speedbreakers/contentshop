@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { getTeamForUser, getUser } from '@/lib/db/queries';
 import { getProductById } from '@/lib/db/products';
-import { createVariantGenerationWithGeminiOutputs, listVariantGenerations } from '@/lib/db/generations';
-import { signVariantImageToken } from '@/lib/uploads/signing';
+import { listVariantGenerations } from '@/lib/db/generations';
 import { checkCredits, deductCredits } from '@/lib/payments/credits';
 import {
   baseGenerationInputSchema,
@@ -11,6 +10,7 @@ import {
 } from '@/lib/workflows/generation';
 import { getMoodboardById, listMoodboardAssets } from '@/lib/db/moodboards';
 import { signDownloadToken } from '@/lib/uploads/signing';
+import { createGenerationJob, countActiveGenerationJobsForTeam } from '@/lib/db/generation-jobs';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -172,73 +172,86 @@ export async function POST(
     }
   }
 
-  const requestOrigin = new URL(request.url).origin;
-  const created = workflow.execute
-    ? await workflow.execute({
-        teamId: team.id,
-        productId: pid,
-        variantId: vid,
-        requestOrigin,
-        authCookie: request.headers.get('cookie'),
-        moodboard,
-        input: workflowInput,
-        numberOfVariations,
-      })
-    : await createVariantGenerationWithGeminiOutputs({
-        teamId: team.id,
-        productId: pid,
-        variantId: vid,
-        schemaKey,
-        input: {
-          ...workflowInput,
-          moodboard_snapshot: moodboard
-            ? {
-                id: moodboard.id,
-                name: moodboard.name,
-                style_profile: moodboard.styleProfile,
-                asset_file_ids: moodboard.assetFileIds,
-              }
-            : null,
-          style_appendix: moodboard?.styleAppendix ?? '',
-        },
-        numberOfVariations,
-        prompt: workflow.buildPrompt({
-          input: {
-            ...workflowInput,
-            style_appendix: moodboard?.styleAppendix ?? '',
-          } as any,
-          product: { title: product.title, category: product.category },
-        }),
-        moodboardId: moodboard?.id ?? null,
-        extraReferenceImageUrls: moodboard?.assetUrls ?? [],
-        requestOrigin,
-        authCookie: request.headers.get('cookie'),
-        productTitle: product.title,
-        productCategory: product.category,
-      });
+  // Rate limit: max 3 active generation jobs per team
+  const activeJobCount = await countActiveGenerationJobsForTeam(team.id);
+  if (activeJobCount >= 3) {
+    return Response.json(
+      { error: 'Too many active generation jobs. Please wait for existing jobs to complete.' },
+      { status: 429 }
+    );
+  }
 
-  // Deduct credits after successful generation
+  const requestOrigin = new URL(request.url).origin;
   const user = await getUser();
+
+  // Deduct credits immediately (before queuing)
+  // This ensures credits are reserved and prevents over-usage
   if (creditCheck.creditsId) {
     await deductCredits(team.id, user?.id ?? null, 'image', numberOfVariations, {
       isOverage: creditCheck.isOverage,
       creditsId: creditCheck.creditsId,
       referenceType: 'variant_generation',
-      referenceId: created.generation.id,
+      referenceId: undefined, // Will be updated when job completes
     });
   }
 
-  // Return signed proxy URLs for created images.
-  const exp = Date.now() + 1000 * 60 * 60; // 1 hour
-  const images = (created.images ?? []).map((img) => {
-    const sig = signVariantImageToken({ imageId: img.id, teamId: team.id, exp });
-    return {
-      ...img,
-      url: `/api/variant-images/${img.id}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`,
-    };
+  // Build the prompt for the workflow
+  const prompt = workflow.buildPrompt({
+    input: {
+      ...workflowInput,
+      style_appendix: moodboard?.styleAppendix ?? '',
+    } as any,
+    product: { title: product.title, category: product.category },
   });
 
-  return Response.json({ ...created, images }, { status: 201 });
+  // Create a job instead of processing synchronously
+  const job = await createGenerationJob(team.id, {
+    productId: pid,
+    variantId: vid,
+    type: 'image_generation',
+    metadata: {
+      schemaKey,
+      input: {
+        ...workflowInput,
+        moodboard_snapshot: moodboard
+          ? {
+              id: moodboard.id,
+              name: moodboard.name,
+              style_profile: moodboard.styleProfile,
+              asset_file_ids: moodboard.assetFileIds,
+            }
+          : null,
+        style_appendix: moodboard?.styleAppendix ?? '',
+      },
+      numberOfVariations,
+      prompt,
+      moodboardId: moodboard?.id ?? null,
+      extraReferenceImageUrls: moodboard?.assetUrls ?? [],
+      requestOrigin,
+      authCookie: request.headers.get('cookie'),
+      productTitle: product.title,
+      productCategory: product.category,
+      // Store credit info for reference
+      creditsId: creditCheck.creditsId,
+      isOverage: creditCheck.isOverage,
+    },
+  });
+
+  if (!job) {
+    return Response.json({ error: 'Failed to create generation job' }, { status: 500 });
+  }
+
+  return Response.json(
+    {
+      job: {
+        id: job.id,
+        status: job.status,
+        createdAt: job.createdAt,
+      },
+      message: 'Generation queued successfully',
+    },
+    { status: 202 }
+  );
 }
 
 

@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from './drizzle';
-import { products, productVariants, setItems, sets, variantGenerations, variantImages } from './schema';
+import { products, productVariants, setItems, sets, variantGenerations, variantImages, type GenerationJob, type VariantImage } from './schema';
 import { put } from '@vercel/blob';
 import { generateText } from 'ai';
 import {
@@ -9,6 +9,17 @@ import {
   fetchAsBytes,
   resolveUrl,
 } from '@/lib/ai/shared/image-fetch';
+import {
+  getGenerationJobById,
+  markGenerationJobRunning,
+  markGenerationJobSuccess,
+  markGenerationJobFailed,
+  updateGenerationJobProgress,
+  updateGenerationJobMetadata,
+  type GenerationJobMetadata,
+  type GenerationJobProgress,
+} from './generation-jobs';
+import JSZip from 'jszip';
 
 export async function listVariantGenerations(teamId: number, variantId: number) {
   return await db
@@ -58,6 +69,8 @@ export type CreateVariantGenerationGeminiInput = CreateVariantGenerationInput & 
   productTitle: string;
   productCategory: string;
   extraReferenceImageUrls?: string[];
+  /** Optional callback to update progress after each image (for queue-based processing) */
+  onProgress?: (current: number, total: number, imageId: number) => Promise<void>;
 };
 
 export type ProvidedOutput = {
@@ -460,8 +473,9 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
         ? input.prompt.trim()
         : `Generate a studio-quality hero product image for \"${input.productTitle}\". Category: ${input.productCategory}.`;
 
-    const uploaded: Array<{ blobUrl: string; prompt: string }> = [];
+    const createdImages: Array<typeof variantImages.$inferSelect> = [];
 
+    // Process images one at a time for incremental progress updates
     for (let idx = 0; idx < input.numberOfVariations; idx++) {
       // Multimodal: include reference images + prompt.
       const result: any = await generateText({
@@ -498,38 +512,41 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
         token: process.env.BLOB_READ_WRITE_TOKEN,
       } as any);
 
-      uploaded.push({ blobUrl: putRes.url, prompt: input.prompt ?? '' });
-    }
-
-    const createdImages = await db
-      .insert(variantImages)
-      .values(
-        uploaded.map((u) => ({
+      // Create image record immediately (not batched)
+      const [createdImage] = await db
+        .insert(variantImages)
+        .values({
           teamId: input.teamId,
           variantId: input.variantId,
           generationId: gen.id,
           status: 'ready',
-          url: u.blobUrl,
+          url: putRes.url,
           prompt: input.prompt ?? null,
           schemaKey: input.schemaKey,
           input: input.input ?? null,
           createdAt: new Date(),
-        }))
-      )
-      .returning();
+        })
+        .returning();
 
-    if (createdImages.length > 0) {
-      await db.insert(setItems).values(
-        createdImages.map((img, idx) => ({
+      if (createdImage) {
+        createdImages.push(createdImage);
+
+        // Add to folder immediately
+        await db.insert(setItems).values({
           teamId: input.teamId,
           setId: folder.id,
           itemType: 'variant_image',
-          itemId: img.id,
+          itemId: createdImage.id,
           sortOrder: idx,
           addedByUserId: null,
           createdAt: new Date(),
-        }))
-      );
+        });
+
+        // Call progress callback if provided (for queue-based processing)
+        if (input.onProgress) {
+          await input.onProgress(idx + 1, input.numberOfVariations, createdImage.id);
+        }
+      }
     }
 
     const [updatedGen] = await db
@@ -739,4 +756,227 @@ export async function createVariantEditWithGeminiOutput(input: CreateVariantEdit
   }
 }
 
+/**
+ * Process a queued generation job.
+ * Called by the cron worker to process jobs in the background.
+ */
+export async function processGenerationJob(
+  job: GenerationJob
+): Promise<{ success: boolean; error?: string }> {
+  const { id: jobId, teamId, productId, variantId, metadata } = job;
+  const meta = metadata as GenerationJobMetadata | null;
 
+  if (!meta) {
+    await markGenerationJobFailed(teamId, jobId, 'Missing job metadata');
+    return { success: false, error: 'Missing job metadata' };
+  }
+
+  // Mark job as running
+  await markGenerationJobRunning(teamId, jobId);
+
+  // Initialize progress
+  const numberOfVariations = meta.numberOfVariations ?? 1;
+  const completedImageIds: number[] = [];
+
+  try {
+    // Get product info for prompt generation
+    const product = await db.query.products.findFirst({
+      where: and(eq(products.teamId, teamId), eq(products.id, productId), isNull(products.deletedAt)),
+      columns: { id: true, title: true, category: true },
+    });
+    if (!product) throw new Error('Product not found');
+
+    // Progress callback to update job status after each image
+    const onProgress = async (current: number, total: number, imageId: number) => {
+      completedImageIds.push(imageId);
+      await updateGenerationJobProgress(teamId, jobId, {
+        current,
+        total,
+        completedImageIds: [...completedImageIds],
+      });
+    };
+
+    // Call the generation function with progress callback
+    const result = await createVariantGenerationWithGeminiOutputs({
+      teamId,
+      productId,
+      variantId,
+      schemaKey: meta.schemaKey ?? 'generated.v1',
+      input: meta.input ?? {},
+      numberOfVariations,
+      prompt: meta.prompt ?? null,
+      moodboardId: meta.moodboardId ?? null,
+      requestOrigin: meta.requestOrigin ?? '',
+      authCookie: meta.authCookie ?? null,
+      productTitle: meta.productTitle ?? product.title,
+      productCategory: meta.productCategory ?? product.category,
+      extraReferenceImageUrls: meta.extraReferenceImageUrls ?? [],
+      onProgress,
+    });
+
+    // Mark job as success
+    await markGenerationJobSuccess(teamId, jobId, result.generation.id, {
+      current: numberOfVariations,
+      total: numberOfVariations,
+      completedImageIds,
+    });
+
+    // Generate zip file for batches with multiple images
+    if (numberOfVariations > 1 && result.images.length > 1) {
+      try {
+        const zipUrl = await generateBatchZip(result.images, jobId, teamId);
+        // Update job metadata with zip URL
+        const updatedMeta = { ...(meta ?? {}), zipUrl };
+        await updateGenerationJobMetadata(teamId, jobId, updatedMeta);
+      } catch (zipErr: any) {
+        // Log error but don't fail the job - images are already saved
+        console.error(`[Generation Job ${jobId}] Failed to generate zip:`, zipErr?.message);
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    const errorMessage = err?.message ? String(err.message).slice(0, 500) : 'Generation failed';
+    await markGenerationJobFailed(teamId, jobId, errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Get images for a generation job (for polling API)
+ */
+export async function getImagesForGenerationJob(teamId: number, jobId: number) {
+  const job = await getGenerationJobById(teamId, jobId);
+  if (!job) return [];
+
+  // If job has a generationId, get images from that generation
+  if (job.generationId) {
+    return await db.query.variantImages.findMany({
+      where: and(
+        eq(variantImages.teamId, teamId),
+        eq(variantImages.generationId, job.generationId)
+      ),
+      orderBy: desc(variantImages.createdAt),
+    });
+  }
+
+  // Otherwise, try to get images from progress
+  const progress = job.progress as GenerationJobProgress | null;
+  if (progress?.completedImageIds?.length) {
+    return await listVariantImagesByIds(teamId, progress.completedImageIds);
+  }
+
+  return [];
+}
+
+/**
+ * Process a queued edit job.
+ * Called by the cron worker to process edit jobs in the background.
+ */
+export async function processEditJob(
+  job: GenerationJob
+): Promise<{ success: boolean; error?: string }> {
+  const { id: jobId, teamId, productId, variantId, metadata } = job;
+  const meta = metadata as GenerationJobMetadata | null;
+
+  if (!meta) {
+    await markGenerationJobFailed(teamId, jobId, 'Missing job metadata');
+    return { success: false, error: 'Missing job metadata' };
+  }
+
+  // Mark job as running
+  await markGenerationJobRunning(teamId, jobId);
+
+  try {
+    // Get product info
+    const product = await db.query.products.findFirst({
+      where: and(eq(products.teamId, teamId), eq(products.id, productId), isNull(products.deletedAt)),
+      columns: { id: true, title: true, category: true },
+    });
+    if (!product) throw new Error('Product not found');
+
+    const input = (meta.input ?? {}) as Record<string, unknown>;
+
+    // Call the edit function
+    const result = await createVariantEditWithGeminiOutput({
+      teamId,
+      productId,
+      variantId,
+      schemaKey: meta.schemaKey ?? 'edit.v1',
+      targetSetId: (meta as any).targetSetId ?? undefined,
+      input: {
+        base_image_url: String(input.base_image_url ?? ''),
+        reference_image_url: input.reference_image_url ? String(input.reference_image_url) : undefined,
+        edit_instructions: String(input.edit_instructions ?? ''),
+        base_label: String(input.base_label ?? 'image'),
+        output_label: String(input.output_label ?? 'edited-image'),
+      },
+      prompt: meta.prompt ?? '',
+      requestOrigin: meta.requestOrigin ?? '',
+      authCookie: meta.authCookie ?? null,
+      productTitle: meta.productTitle ?? product.title,
+      productCategory: meta.productCategory ?? product.category,
+    });
+
+    // Mark job as success
+    await markGenerationJobSuccess(teamId, jobId, result.generation.id, {
+      current: 1,
+      total: 1,
+      completedImageIds: [result.image.id],
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    const errorMessage = err?.message ? String(err.message).slice(0, 500) : 'Edit failed';
+    await markGenerationJobFailed(teamId, jobId, errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Generate a zip file containing all images from a batch.
+ * Used when a generation job completes with multiple images.
+ */
+export async function generateBatchZip(
+  images: VariantImage[],
+  jobId: number,
+  teamId: number
+): Promise<string> {
+  const zip = new JSZip();
+
+  // Fetch each image and add to zip
+  for (let i = 0; i < images.length; i++) {
+    const image = images[i];
+    const response = await fetch(image.url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image ${i + 1}: ${image.url}`);
+    }
+
+    const imageBuffer = await response.arrayBuffer();
+    // Extract extension from URL or default to png
+    const urlParts = image.url.split('.');
+    const ext = urlParts.length > 1 ? urlParts[urlParts.length - 1].split('?')[0].toLowerCase() : 'png';
+    const filename = `image-${i + 1}.${ext}`;
+
+    zip.file(filename, imageBuffer);
+  }
+
+  // Generate zip file as buffer
+  const zipBuffer = await zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 }, // Balance between size and speed
+  });
+
+  // Upload to Vercel Blob storage
+  const pathname = `team-${teamId}/generations/${jobId}/batch.zip`;
+  const blob = new Blob([zipBuffer], { type: 'application/zip' });
+  const putRes = await put(pathname, blob, {
+    access: 'public',
+    contentType: 'application/zip',
+    addRandomSuffix: false,
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  } as any);
+
+  return putRes.url;
+}

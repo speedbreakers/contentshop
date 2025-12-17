@@ -33,22 +33,21 @@ export async function listJobs(
 ) {
   const { accountId, status, limit = 50 } = options ?? {};
 
-  let query = db
-    .select()
-    .from(commerceJobs)
-    .where(eq(commerceJobs.teamId, teamId))
-    .orderBy(desc(commerceJobs.createdAt))
-    .limit(limit);
+  const conditions = [eq(commerceJobs.teamId, teamId)];
 
-  // Apply optional filters using $dynamic
   if (accountId !== undefined) {
-    query = query.where(eq(commerceJobs.accountId, accountId)) as typeof query;
+    conditions.push(eq(commerceJobs.accountId, accountId));
   }
   if (status !== undefined) {
-    query = query.where(eq(commerceJobs.status, status)) as typeof query;
+    conditions.push(eq(commerceJobs.status, status));
   }
 
-  return await query;
+  return await db
+    .select()
+    .from(commerceJobs)
+    .where(and(...conditions))
+    .orderBy(desc(commerceJobs.createdAt))
+    .limit(limit);
 }
 
 /**

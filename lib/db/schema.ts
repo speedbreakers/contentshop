@@ -843,6 +843,46 @@ export const commerceJobs = pgTable(
   })
 );
 
+/**
+ * Generation Jobs (background job queue for image generation)
+ * - Tracks image generation and edit operations.
+ * - Progress stored as jsonb for incremental updates.
+ */
+export const generationJobs = pgTable(
+  'generation_jobs',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+    variantId: integer('variant_id')
+      .notNull()
+      .references(() => productVariants.id),
+    generationId: integer('generation_id').references(() => variantGenerations.id),
+
+    type: varchar('type', { length: 50 }).notNull(), // 'image_generation' | 'image_edit'
+    status: varchar('status', { length: 20 }).notNull().default('queued'), // queued|running|success|failed|canceled
+
+    progress: jsonb('progress'), // { current: 3, total: 10, completedImageIds: [1, 2, 3] }
+    error: text('error'),
+    metadata: jsonb('metadata'), // job input data + zipUrl (after completion)
+
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('generation_jobs_team_id_idx').on(t.teamId),
+    variantIdx: index('generation_jobs_variant_id_idx').on(t.variantId),
+    statusIdx: index('generation_jobs_status_idx').on(t.status),
+    typeStatusIdx: index('generation_jobs_type_status_idx').on(t.type, t.status),
+  })
+);
+
 // ============================================================================
 // Relations
 // ============================================================================
@@ -1105,7 +1145,7 @@ export const commerceAccountsRelations = relations(commerceAccounts, ({ one, man
   jobs: many(commerceJobs),
 }));
 
-export const externalProductsRelations = relations(externalProducts, ({ one, many }) => ({
+export const externalProductsRelations = relations(externalProducts, ({ one }) => ({
   team: one(teams, {
     fields: [externalProducts.teamId],
     references: [teams.id],
@@ -1114,7 +1154,8 @@ export const externalProductsRelations = relations(externalProducts, ({ one, man
     fields: [externalProducts.accountId],
     references: [commerceAccounts.id],
   }),
-  variants: many(externalVariants),
+  // Note: variants are linked via externalProductId text field, not a foreign key
+  // Use manual queries to fetch variants for a product
 }));
 
 export const externalVariantsRelations = relations(externalVariants, ({ one }) => ({
@@ -1196,6 +1237,25 @@ export const commerceJobsRelations = relations(commerceJobs, ({ one }) => ({
   }),
 }));
 
+export const generationJobsRelations = relations(generationJobs, ({ one }) => ({
+  team: one(teams, {
+    fields: [generationJobs.teamId],
+    references: [teams.id],
+  }),
+  product: one(products, {
+    fields: [generationJobs.productId],
+    references: [products.id],
+  }),
+  variant: one(productVariants, {
+    fields: [generationJobs.variantId],
+    references: [productVariants.id],
+  }),
+  generation: one(variantGenerations, {
+    fields: [generationJobs.generationId],
+    references: [variantGenerations.id],
+  }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
@@ -1236,6 +1296,8 @@ export type TeamCredits = typeof teamCredits.$inferSelect;
 export type NewTeamCredits = typeof teamCredits.$inferInsert;
 export type UsageRecord = typeof usageRecords.$inferSelect;
 export type NewUsageRecord = typeof usageRecords.$inferInsert;
+export type GenerationJob = typeof generationJobs.$inferSelect;
+export type NewGenerationJob = typeof generationJobs.$inferInsert;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

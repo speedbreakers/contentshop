@@ -503,7 +503,7 @@ export default function MoodboardsPage() {
                                 try {
                                     await removeMoodboard(deleteTarget);
                                 } catch (e: any) {
-                                    setError(e?.message ? String(e.message) : 'Delete failed.');
+                                    console.error('Delete failed:', e?.message ?? 'Unknown error');
                                 } finally {
                                     setDeleteTarget(null);
                                 }

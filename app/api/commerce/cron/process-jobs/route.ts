@@ -1,9 +1,9 @@
 /**
- * Commerce Jobs Cron Worker
+ * Commerce & Generation Jobs Cron Worker
  *
  * GET /api/commerce/cron/process-jobs
  *
- * Processes queued commerce jobs. Called by Vercel cron every minute.
+ * Processes queued commerce and generation jobs. Called by Vercel cron every minute.
  * Each invocation processes a batch of jobs within the function timeout.
  */
 
@@ -12,6 +12,8 @@ import { db } from '@/lib/db/drizzle';
 import { commerceJobs } from '@/lib/db/schema';
 import { processCatalogSyncJob } from '@/lib/commerce/providers/shopify/sync';
 import type { SyncProgress } from '@/lib/commerce/providers/types';
+import { getQueuedGenerationJobs } from '@/lib/db/generation-jobs';
+import { processGenerationJob, processEditJob } from '@/lib/db/generations';
 
 // Max duration for Pro plan (can be up to 300s with maxDuration config)
 export const maxDuration = 60;
@@ -37,16 +39,20 @@ export async function GET(request: Request) {
   }> = [];
 
   try {
-    // Fetch queued jobs (batch of 3 to stay within timeout)
-    const jobs = await db.query.commerceJobs.findMany({
+    // Fetch queued commerce jobs (batch of 2 to leave room for generation jobs)
+    const commerceJobsList = await db.query.commerceJobs.findMany({
       where: eq(commerceJobs.status, 'queued'),
-      limit: 3,
+      limit: 2,
       orderBy: asc(commerceJobs.createdAt),
     });
 
-    console.log(`[Cron] Found ${jobs.length} queued jobs`);
+    // Fetch queued generation jobs (batch of 2)
+    const generationJobsList = await getQueuedGenerationJobs(2);
 
-    for (const job of jobs) {
+    console.log(`[Cron] Found ${commerceJobsList.length} queued commerce jobs, ${generationJobsList.length} queued generation jobs`);
+
+    // Process commerce jobs
+    for (const job of commerceJobsList) {
       // Check if we have enough time remaining (leave 10s buffer)
       const elapsed = Date.now() - startTime;
       if (elapsed > (maxDuration - 10) * 1000) {
@@ -87,7 +93,7 @@ export async function GET(request: Request) {
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`[Cron] Job ${job.id} error:`, errorMsg);
+        console.error(`[Cron] Commerce job ${job.id} error:`, errorMsg);
 
         await db
           .update(commerceJobs)
@@ -99,6 +105,40 @@ export async function GET(request: Request) {
           })
           .where(eq(commerceJobs.id, job.id));
 
+        results.push({ id: job.id, type: job.type, status: 'failed', error: errorMsg });
+      }
+    }
+
+    // Process generation jobs
+    for (const job of generationJobsList) {
+      // Check if we have enough time remaining (leave 30s buffer for generation jobs as they take longer)
+      const elapsed = Date.now() - startTime;
+      if (elapsed > (maxDuration - 30) * 1000) {
+        console.log('[Cron] Approaching timeout, stopping early before generation jobs');
+        break;
+      }
+
+      try {
+        console.log(`[Cron] Processing generation job ${job.id} (type: ${job.type})`);
+
+        let result;
+        if (job.type === 'image_edit') {
+          result = await processEditJob(job);
+        } else {
+          result = await processGenerationJob(job);
+        }
+
+        results.push({
+          id: job.id,
+          type: job.type,
+          status: result.success ? 'success' : 'failed',
+          error: result.error,
+        });
+
+        console.log(`[Cron] Generation job ${job.id} completed with status: ${result.success ? 'success' : 'failed'}`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[Cron] Generation job ${job.id} error:`, errorMsg);
         results.push({ id: job.id, type: job.type, status: 'failed', error: errorMsg });
       }
     }
