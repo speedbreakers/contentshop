@@ -10,6 +10,7 @@
 - allow switching between images in the folder in the view asset modal - Done
 - Sync modal - on clicking sync the button keeps showing starting... - Done
 - clicking on storefront should take inside - Done
+- useSwr everywhere - Done
 
 - aspect ratio setting
 - non-garment / infographics workflow implementation
@@ -19,7 +20,6 @@
 - model and background library
 - add better loaders
 - onboarding
-- useSwr everywhere
 - generating 10 images results in timeout on the frontend
 
 UI Issues:
