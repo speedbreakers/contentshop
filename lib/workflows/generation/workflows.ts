@@ -11,7 +11,7 @@ export const baseGenerationInputSchema = z.object({
   background_image: z.string().optional().default(''),
   output_format: z.enum(['png', 'jpg', 'webp']).default('png'),
   aspect_ratio: z.enum(['1:1', '4:5', '3:4', '16:9']).default('1:1'),
-  custom_instructions: z.string().optional().default(''),
+  custom_instructions: z.array(z.string()),
 });
 
 function buildCatalogGuidelines() {
@@ -101,14 +101,17 @@ function makeWorkflow(
   return {
     key,
     inputSchema: inputSchema as any,
-    buildPrompt: ({ input, product }) =>
-      buildPromptBase({
+    buildPrompt: ({ input, product }) => {
+      const customInstructions = input.custom_instructions as unknown as string;
+      console.log(`[Workflow ${key}] Building prompt with instructions: "${customInstructions}"`);
+      return buildPromptBase({
         productTitle: product.title,
         purpose,
         categoryFamily,
-        customInstructions: input.custom_instructions ?? '',
+        customInstructions,
         styleAppendix: String((input as any)?.style_appendix ?? ''),
-      }),
+      });
+    },
   };
 }
 

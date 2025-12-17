@@ -152,10 +152,10 @@ export async function executeApparelCatalogWorkflow(args: {
     schemaKey: args.schemaKey,
     input: enrichedInput,
     numberOfVariations: args.numberOfVariations,
-    prompt: finalPrompt,
+    prompts: Array(args.numberOfVariations).fill(finalPrompt), // Same prompt for all variations in pipeline
     generationId: gen.id,
     moodboardId: args.moodboard?.id ?? null,
-    outputs: outputs.map((o) => ({ blobUrl: o.blobUrl, prompt: finalPrompt })),
+    outputs: outputs.map((o, idx) => ({ blobUrl: o.blobUrl, prompt: finalPrompt })),
   });
 
   return saved;

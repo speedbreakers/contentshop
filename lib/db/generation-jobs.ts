@@ -22,6 +22,7 @@ export interface GenerationJobMetadata {
   input?: Record<string, unknown>;
   numberOfVariations?: number;
   prompt?: string;
+  prompts?: string[]; // Support for per-variation prompts
   moodboardId?: number | null;
   requestOrigin?: string;
   authCookie?: string | null;

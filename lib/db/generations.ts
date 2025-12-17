@@ -59,7 +59,7 @@ export type CreateVariantGenerationInput = {
   schemaKey: string;
   input: any;
   numberOfVariations: number;
-  prompt?: string | null;
+  prompts: string[]; // Required for per-variation prompts
   moodboardId?: number | null;
 };
 
@@ -189,7 +189,7 @@ export async function createVariantGenerationWithProvidedOutputs(
           generationId: createdGen.id,
           status: 'ready',
           url: o.blobUrl,
-          prompt: (o.prompt ?? input.prompt ?? null) as any,
+          prompt: o.prompt ?? null,
           schemaKey: input.schemaKey,
           input: input.input ?? null,
           createdAt: new Date(),
@@ -306,7 +306,7 @@ export async function createVariantGenerationWithMockOutputs(input: CreateVarian
         generationId: gen.id,
         status: 'ready',
         url,
-        prompt: input.prompt ?? null,
+        prompt: input.prompts[idx] ?? null,
         schemaKey: input.schemaKey,
         input: input.input ?? null,
       };
@@ -466,17 +466,17 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
       })
     );
 
-    // The API now resolves a workflow-specific prompt (category × purpose).
-    // Keep this fallback for older callers.
-    const prompt =
-      input.prompt?.trim()
-        ? input.prompt.trim()
-        : `Generate a studio-quality hero product image for \"${input.productTitle}\". Category: ${input.productCategory}.`;
-
     const createdImages: Array<typeof variantImages.$inferSelect> = [];
 
     // Process images one at a time for incremental progress updates
     for (let idx = 0; idx < input.numberOfVariations; idx++) {
+      const prompt = input.prompts[idx]?.trim() || '';
+
+      // Ensure we have a valid prompt
+      if (!prompt || prompt.trim().length === 0) {
+        throw new Error(`Invalid prompt for variation ${idx + 1}: prompt is empty`);
+      }
+
       // Multimodal: include reference images + prompt.
       const result: any = await generateText({
         model: 'google/gemini-2.5-flash-image',
@@ -521,7 +521,7 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
           generationId: gen.id,
           status: 'ready',
           url: putRes.url,
-          prompt: input.prompt ?? null,
+          prompt: prompt,
           schemaKey: input.schemaKey,
           input: input.input ?? null,
           createdAt: new Date(),
@@ -804,7 +804,7 @@ export async function processGenerationJob(
       schemaKey: meta.schemaKey ?? 'generated.v1',
       input: meta.input ?? {},
       numberOfVariations,
-      prompt: meta.prompt ?? null,
+      prompts: meta.prompts ?? [], // Required prompts array for per-variation instructions
       moodboardId: meta.moodboardId ?? null,
       requestOrigin: meta.requestOrigin ?? '',
       authCookie: meta.authCookie ?? null,

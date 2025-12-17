@@ -195,13 +195,20 @@ export async function POST(
     });
   }
 
-  // Build the prompt for the workflow
-  const prompt = workflow.buildPrompt({
-    input: {
+  // Build prompts for the workflow (per-variation prompts only)
+  const customInstructions = workflowInput.custom_instructions ?? [];
+  const prompts = Array.from({ length: numberOfVariations }, (_, idx) => {
+    const variationInstruction = customInstructions[idx] || '';
+    console.log(`[API] Variation ${idx + 1} instruction: "${variationInstruction}"`);
+    const variationInput = {
       ...workflowInput,
+      custom_instructions: variationInstruction,
       style_appendix: moodboard?.styleAppendix ?? '',
-    } as any,
-    product: { title: product.title, category: product.category },
+    };
+    return workflow.buildPrompt({
+      input: variationInput as any,
+      product: { title: product.title, category: product.category },
+    });
   });
 
   // Create a job instead of processing synchronously
@@ -224,7 +231,7 @@ export async function POST(
         style_appendix: moodboard?.styleAppendix ?? '',
       },
       numberOfVariations,
-      prompt,
+      prompts, // Store array of prompts instead of single prompt
       moodboardId: moodboard?.id ?? null,
       extraReferenceImageUrls: moodboard?.assetUrls ?? [],
       requestOrigin,

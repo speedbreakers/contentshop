@@ -24,7 +24,7 @@ export type BaseGenerationInput = {
   background_image?: string;
   output_format?: 'png' | 'jpg' | 'webp';
   aspect_ratio?: '1:1' | '4:5' | '3:4' | '16:9';
-  custom_instructions?: string;
+  custom_instructions: string[];
 };
 
 export type WorkflowProductContext = {

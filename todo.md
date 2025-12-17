@@ -13,6 +13,7 @@ Product:
 - clicking on storefront should take inside - Done
 - useSwr everywhere - Done
 - generating 10 images results in timeout on the frontend - Done
+- if the user gives custom instructions for every generation in one text how do you handle that - Done
 
 - aspect ratio setting
 - non-garment / infographics workflow implementation
@@ -22,8 +23,8 @@ Product:
 - model and background library
 - add better loaders
 - onboarding
-- if the user gives custom instructions for every generation in one text how do you handle that
 - change all id fields to ulid
+- optimizations with kv
 
 UI Issues:
 - review copy (some parts are difficult to understand)

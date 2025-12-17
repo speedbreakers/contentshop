@@ -8,7 +8,7 @@ import useSWR from 'swr';
 import { fetchJson } from '@/lib/swr/fetcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight, ImageIcon, RefreshCw, Loader2 } from 'lucide-react';
+import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight, ImageIcon, RefreshCw, Loader2, Copy } from 'lucide-react';
 import { GenerationProgress, type GenerationJobData } from '@/components/generation-progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -309,7 +309,7 @@ export default function VariantAssetsPage() {
   const [genAspectRatio, setGenAspectRatio] = useState<'1:1' | '4:5' | '3:4' | '16:9'>('1:1');
   const [genPurpose, setGenPurpose] = useState<'catalog' | 'ads' | 'infographics'>('catalog');
   const [genMoodboardId, setGenMoodboardId] = useState<number | null>(null);
-  const [genCustomInstructions, setGenCustomInstructions] = useState('');
+  const [genCustomInstructions, setGenCustomInstructions] = useState<string[]>(['']);
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
   const [genValidationError, setGenValidationError] = useState<string | null>(null);
@@ -327,6 +327,30 @@ export default function VariantAssetsPage() {
 
   // Product images input (array of file URLs)
   const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '']);
+
+  // Update custom instructions array when number of variations changes
+  useEffect(() => {
+    setGenCustomInstructions(prev => {
+      const newInstructions = Array.from({ length: genNumberOfVariations }, (_, i) =>
+        prev[i] || ''
+      );
+      return newInstructions;
+    });
+  }, [genNumberOfVariations]);
+
+  // Helper function to update individual instruction
+  const updateCustomInstruction = (index: number, value: string) => {
+    const newInstructions = [...genCustomInstructions];
+    newInstructions[index] = value;
+    setGenCustomInstructions(newInstructions);
+  };
+
+  // Helper function to copy instruction from one variation to all others
+  const copyInstructionToAll = (sourceIndex: number) => {
+    const sourceValue = genCustomInstructions[sourceIndex] || '';
+    const newInstructions = Array.from({ length: genNumberOfVariations }, () => sourceValue);
+    setGenCustomInstructions(newInstructions);
+  };
 
   useEffect(() => {
     if (initError) {
@@ -643,6 +667,11 @@ export default function VariantAssetsPage() {
       return false;
     }
 
+    // Ensure instructions array matches number of variations
+    const instructions = Array.from({ length: n }, (_, i) =>
+      genCustomInstructions[i]?.trim() || ''
+    );
+
     const input = {
       product_images: productImages,
       purpose: genPurpose,
@@ -652,7 +681,7 @@ export default function VariantAssetsPage() {
       number_of_variations: n,
       output_format: genOutputFormat,
       aspect_ratio: genAspectRatio,
-      custom_instructions: genCustomInstructions.trim(),
+      custom_instructions: instructions,
     };
 
     setIsGenerating(true);
@@ -671,7 +700,7 @@ export default function VariantAssetsPage() {
         label: `${label} ${idx + 1}`,
         status: 'generating',
         url: placeholderUrl('Generating…', Math.abs(id), 640),
-        prompt: genCustomInstructions.trim() || 'Generate a hero product image.',
+        prompt: (genCustomInstructions[0] || '').trim() || 'Generate a hero product image.',
         schemaKey: 'hero_product.v1',
         input,
         isSelected: false,
@@ -724,7 +753,7 @@ export default function VariantAssetsPage() {
         label: `${label} ${idx + 1}`,
         status: 'ready',
         url: String(img.url),
-        prompt: String(img.prompt ?? genCustomInstructions.trim() ?? ''),
+        prompt: String(img.prompt ?? (genCustomInstructions[0] || '').trim() ?? ''),
         schemaKey: String(img.schemaKey ?? 'hero_product.v1'),
         input: img.input ?? input,
         isSelected: false,
@@ -1580,16 +1609,38 @@ export default function VariantAssetsPage() {
                 </div>
               </div>
 
-              <Field>
-                <FieldLabel htmlFor="gen-instructions">Custom instructions (optional)</FieldLabel>
-                <Textarea
-                  id="gen-instructions"
-                  value={genCustomInstructions}
-                  onChange={(e) => setGenCustomInstructions(e.target.value)}
-                  placeholder="e.g., brighter background, more premium lighting, centered framing"
-                  className="min-h-[120px] resize-none"
-                />
-              </Field>
+              <div className="space-y-3 mt-2">
+                <div>
+                  <FieldLabel htmlFor="gen-instructions">Custom instructions</FieldLabel>
+                  <FieldDescription>
+                    Add custom instructions for each variation.
+                  </FieldDescription>
+                </div>
+                {Array.from({ length: genNumberOfVariations }, (_, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <FieldLabel htmlFor={`gen-instructions-${i}`} className="text-sm font-medium whitespace-nowrap min-w-fit">
+                      Variation {i + 1}:
+                    </FieldLabel>
+                    <Input
+                      id={`gen-instructions-${i}`}
+                      value={genCustomInstructions[i] || ''}
+                      onChange={(e) => updateCustomInstruction(i, e.target.value)}
+                      placeholder="e.g., generate a product image with a studio background"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyInstructionToAll(i)}
+                      className="shrink-0 h-9 w-9 p-0"
+                      title={`Copy to all variations`}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </FieldGroup>
 
             {genSubmitError ? (
