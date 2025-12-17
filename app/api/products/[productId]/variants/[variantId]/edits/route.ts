@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { getTeamForUser } from '@/lib/db/queries';
+import { getTeamForUser, getUser } from '@/lib/db/queries';
 import { getProductById } from '@/lib/db/products';
 import { createVariantEditWithGeminiOutput } from '@/lib/db/generations';
 import { signVariantImageToken } from '@/lib/uploads/signing';
+import { checkCredits, deductCredits } from '@/lib/payments/credits';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -43,6 +44,39 @@ export async function POST(
   const product = await getProductById(team.id, pid);
   if (!product) return Response.json({ error: 'Not found' }, { status: 404 });
 
+  // Check credits before edit (1 credit for image edit)
+  const numberOfVariations = 1;
+  const creditCheck = await checkCredits(team.id, 'image', numberOfVariations);
+
+  if (!creditCheck.allowed) {
+    return Response.json(
+      {
+        error: 'insufficient_credits',
+        reason: creditCheck.reason,
+        remaining: creditCheck.remaining,
+        required: numberOfVariations,
+        upgradeUrl: '/pricing',
+      },
+      { status: 402 }
+    );
+  }
+
+  // If overage required, check if confirmation was provided
+  if (creditCheck.isOverage) {
+    const confirmOverage = request.headers.get('x-confirm-overage');
+    if (confirmOverage !== 'true') {
+      return Response.json(
+        {
+          requiresOverageConfirmation: true,
+          overageCount: creditCheck.overageCount,
+          overageCost: creditCheck.overageCost,
+          remaining: creditCheck.remaining,
+        },
+        { status: 200 }
+      );
+    }
+  }
+
   const requestOrigin = new URL(request.url).origin;
   const baseLabel = parsed.data.base_label?.trim() ? String(parsed.data.base_label).trim() : 'image';
   const outputLabel = `edited-${baseLabel}`;
@@ -64,6 +98,17 @@ export async function POST(
     productTitle: product.title,
     productCategory: product.category,
   });
+
+  // Deduct credits after successful edit
+  const user = await getUser();
+  if (creditCheck.creditsId) {
+    await deductCredits(team.id, user?.id ?? null, 'image', numberOfVariations, {
+      isOverage: creditCheck.isOverage,
+      creditsId: creditCheck.creditsId,
+      referenceType: 'variant_edit',
+      referenceId: created.generation.id,
+    });
+  }
 
   const exp = Date.now() + 1000 * 60 * 60; // 1 hour
   const sig = signVariantImageToken({ imageId: created.image.id, teamId: team.id, exp });
