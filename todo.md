@@ -12,6 +12,7 @@
 - clicking on storefront should take inside - Done
 - useSwr everywhere - Done
 
+- stripe
 - aspect ratio setting
 - non-garment / infographics workflow implementation
 - description workflow implementation

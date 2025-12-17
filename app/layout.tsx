@@ -32,10 +32,10 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`bg-white dark:bg-gray-950 text-black dark:text-white ${manrope.className}`}
+      className={`bg-sidebar text-black dark:text-white ${manrope.className}`}
       suppressHydrationWarning
     >
-      <body className="min-h-[100dvh] bg-gray-50">
+      <body className="min-h-[100dvh] bg-background">
         <AppProviders fallback={fallback}>{children}</AppProviders>
       </body>
     </html>

@@ -8,7 +8,7 @@ import useSWR from 'swr';
 import { fetchJson } from '@/lib/swr/fetcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight, ImageIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -837,10 +837,25 @@ export default function VariantAssetsPage() {
         </div>
 
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-lg lg:text-2xl font-medium">{variant.title}</h1>
-            <div className="mt-2 text-sm text-muted-foreground">
-              {variant.sku ? <span>SKU: {variant.sku}</span> : null}
+          <div className='flex gap-x-4'>
+            <div className="h-12 w-12 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
+              {variant.imageUrl ? (
+                <Image
+                  src={variant.imageUrl}
+                  alt=""
+                  width={48}
+                  height={48}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <ImageIcon className="h-6 w-6 text-muted-foreground" />
+              )}
+            </div>
+            <div>
+              <h1 className="text-lg lg:text-2xl font-medium">{variant.title}</h1>
+              <div className="mt-2 text-sm text-muted-foreground">
+                {variant.sku ? <span>SKU: {variant.sku}</span> : null}
+              </div>
             </div>
           </div>
 
@@ -856,7 +871,7 @@ export default function VariantAssetsPage() {
       </div>
 
       {/* Linked Storefronts */}
-      <LinkedStorefronts variantId={variantId} />
+      {/* <LinkedStorefronts variantId={variantId} /> */}
 
       <EditVariantDialog
         open={editVariantOpen}
@@ -1038,11 +1053,8 @@ export default function VariantAssetsPage() {
                       Select a folder on the left to view its items.
                     </p>
                   ) : (itemsBySetId[activeFolderId] ?? []).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No items in this folder yet.
-                      {activeFolderId === defaultSetId
-                        ? ' Click Generate to create new outputs (they will land in Default).'
-                        : ' Use Move to organize items here.'}
+                    <p className="text-sm text-muted-foreground flex w-full h-full items-center text-center justify-center">
+                      No items in this folder yet. <br /> Click Generate to create new outputs
                     </p>
                   ) : (
                     <div className="space-y-2">
