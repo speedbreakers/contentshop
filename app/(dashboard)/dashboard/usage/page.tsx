@@ -302,7 +302,9 @@ export default function UsagePage() {
                   )}
                   <div>
                     <div className="font-medium text-gray-900 dark:text-gray-100">
-                      {record.usageType === 'image' ? 'Image generation' : 'Text generation'}
+                      {record.usageType === 'image' 
+                        ? (record.referenceType === 'variant_edit' ? 'Image edit' : 'Image generation')
+                        : 'Text generation'}
                       {record.isOverage && (
                         <span className="ml-2 text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 rounded-full">
                           Overage
