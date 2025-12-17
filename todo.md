@@ -25,8 +25,11 @@ Product:
 - onboarding
 - change all id fields to ulid
 - optimizations with kv
+- nano banana retry
+- applying moodboard properly
 
 UI Issues:
+- review all empty states
 - review copy (some parts are difficult to understand)
 
 Business:

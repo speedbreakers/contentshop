@@ -4,9 +4,9 @@
  * CRUD operations for generation_jobs table (background job queue for image generation).
  */
 
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
-import { generationJobs } from '@/lib/db/schema';
+import { batches, generationJobs } from '@/lib/db/schema';
 
 export type GenerationJobType = 'image_generation' | 'image_edit';
 export type GenerationJobStatus = 'queued' | 'running' | 'success' | 'failed' | 'canceled';
@@ -32,6 +32,14 @@ export interface GenerationJobMetadata {
   zipUrl?: string;
   creditsId?: number;
   isOverage?: boolean;
+  /** Optional destination folder for outputs (per-variant batch folder). */
+  targetSetId?: number | null;
+  /** Optional additional folder to also add outputs to (shared batch folder). */
+  sharedSetId?: number | null;
+  /** If this job is a retry of another job, this points to the original job id. */
+  retryOfJobId?: number | null;
+  /** Retry attempt counter (1 for first retry). */
+  retryAttempt?: number;
   [key: string]: unknown;
 }
 
@@ -40,6 +48,7 @@ export interface CreateGenerationJobInput {
   variantId: number;
   type: GenerationJobType;
   metadata?: GenerationJobMetadata;
+  batchId?: number | null;
 }
 
 export interface UpdateGenerationJobInput {
@@ -123,6 +132,7 @@ export async function createGenerationJob(teamId: number, input: CreateGeneratio
       teamId,
       productId: input.productId,
       variantId: input.variantId,
+      batchId: input.batchId ?? null,
       type: input.type,
       status: 'queued',
       metadata: input.metadata ?? null,
@@ -132,6 +142,17 @@ export async function createGenerationJob(teamId: number, input: CreateGeneratio
     .returning();
 
   return row ?? null;
+}
+
+/**
+ * List jobs for a specific batch
+ */
+export async function listGenerationJobsByBatch(teamId: number, batchId: number) {
+  return await db
+    .select()
+    .from(generationJobs)
+    .where(and(eq(generationJobs.teamId, teamId), eq(generationJobs.batchId, batchId)))
+    .orderBy(desc(generationJobs.createdAt));
 }
 
 /**
@@ -227,12 +248,24 @@ export async function markGenerationJobFailed(teamId: number, id: number, error:
  * Get queued generation jobs for processing (used by cron worker)
  */
 export async function getQueuedGenerationJobs(limit: number = 3) {
-  return await db
-    .select()
+  const rows = await db
+    .select({ job: generationJobs })
     .from(generationJobs)
-    .where(eq(generationJobs.status, 'queued'))
+    .leftJoin(batches, eq(batches.id, generationJobs.batchId))
+    .where(
+      and(
+        eq(generationJobs.status, 'queued'),
+        // If this is a batch job, only process it when batch is not paused/canceled.
+        or(
+          isNull(generationJobs.batchId),
+          and(eq(batches.id, generationJobs.batchId), notInArray(batches.status, ['paused', 'canceled']))
+        )
+      )
+    )
     .orderBy(asc(generationJobs.createdAt))
     .limit(limit);
+
+  return rows.map((r) => r.job);
 }
 
 /**

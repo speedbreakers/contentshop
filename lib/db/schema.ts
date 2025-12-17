@@ -381,6 +381,9 @@ export const sets = pgTable(
     scopeType: varchar('scope_type', { length: 20 }).notNull().default('variant'),
     productId: integer('product_id').references(() => products.id),
     variantId: integer('variant_id').references(() => productVariants.id),
+    // Optional: batches can create per-variant folders and a shared batch folder.
+    // Intentionally not a foreign key to avoid circular table inference issues with `batches.folderId -> sets.id`.
+    batchId: integer('batch_id'),
 
     // A single, backend-generated default set per variant.
     // All generations go here unless the user moves them to another set.
@@ -398,6 +401,7 @@ export const sets = pgTable(
   (t) => ({
     teamIdx: index('sets_team_id_idx').on(t.teamId),
     teamVariantIdx: index('sets_team_variant_id_idx').on(t.teamId, t.variantId),
+    teamBatchIdx: index('sets_team_batch_id_idx').on(t.teamId, t.batchId),
     teamVariantDefaultIdx: index('sets_team_variant_default_idx').on(
       t.teamId,
       t.variantId,
@@ -862,6 +866,7 @@ export const generationJobs = pgTable(
       .notNull()
       .references(() => productVariants.id),
     generationId: integer('generation_id').references(() => variantGenerations.id),
+    batchId: integer('batch_id').references(() => batches.id),
 
     type: varchar('type', { length: 50 }).notNull(), // 'image_generation' | 'image_edit'
     status: varchar('status', { length: 20 }).notNull().default('queued'), // queued|running|success|failed|canceled
@@ -878,8 +883,34 @@ export const generationJobs = pgTable(
   (t) => ({
     teamIdx: index('generation_jobs_team_id_idx').on(t.teamId),
     variantIdx: index('generation_jobs_variant_id_idx').on(t.variantId),
+    batchIdx: index('generation_jobs_batch_id_idx').on(t.batchId),
     statusIdx: index('generation_jobs_status_idx').on(t.status),
     typeStatusIdx: index('generation_jobs_type_status_idx').on(t.type, t.status),
+  })
+);
+
+export const batches = pgTable(
+  'batches',
+  {
+    id: serial('id').primaryKey(),
+    teamId: integer('team_id')
+      .notNull()
+      .references(() => teams.id),
+    name: varchar('name', { length: 255 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('queued'), // queued|running|success|failed|canceled
+    settings: jsonb('settings'),
+    variantCount: integer('variant_count').notNull().default(0),
+    imageCount: integer('image_count').notNull().default(0),
+    folderId: integer('folder_id').references(() => sets.id), // shared batch folder
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index('batches_team_id_idx').on(t.teamId),
+    statusIdx: index('batches_status_idx').on(t.status),
+    teamCreatedIdx: index('batches_team_created_at_idx').on(t.teamId, t.createdAt),
   })
 );
 
@@ -1254,6 +1285,22 @@ export const generationJobsRelations = relations(generationJobs, ({ one }) => ({
     fields: [generationJobs.generationId],
     references: [variantGenerations.id],
   }),
+  batch: one(batches, {
+    fields: [generationJobs.batchId],
+    references: [batches.id],
+  }),
+}));
+
+export const batchesRelations = relations(batches, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [batches.teamId],
+    references: [teams.id],
+  }),
+  folder: one(sets, {
+    fields: [batches.folderId],
+    references: [sets.id],
+  }),
+  jobs: many(generationJobs),
 }));
 
 export type User = typeof users.$inferSelect;
@@ -1298,6 +1345,8 @@ export type UsageRecord = typeof usageRecords.$inferSelect;
 export type NewUsageRecord = typeof usageRecords.$inferInsert;
 export type GenerationJob = typeof generationJobs.$inferSelect;
 export type NewGenerationJob = typeof generationJobs.$inferInsert;
+export type Batch = typeof batches.$inferSelect;
+export type NewBatch = typeof batches.$inferInsert;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

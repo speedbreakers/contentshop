@@ -172,6 +172,42 @@ export async function deductCredits(
 }
 
 /**
+ * Refund credits (inverse of deductCredits) and record the refund as a usage record.
+ * Note: This adjusts internal counters only. Overage billing refunds are not reported to Stripe here.
+ */
+export async function refundCredits(
+  teamId: number,
+  userId: number | null,
+  usageType: UsageType,
+  count: number,
+  options: {
+    isOverage: boolean;
+    creditsId: number;
+    referenceType?: string;
+    referenceId?: number;
+  }
+): Promise<void> {
+  const { isOverage, creditsId, referenceType, referenceId } = options;
+  const n = Math.max(0, Math.floor(count || 0));
+  if (n <= 0) return;
+
+  // Decrement credit counters
+  await incrementCreditUsage(creditsId, usageType, -n, isOverage);
+
+  // Create usage record with negative creditsUsed (audit trail)
+  await createUsageRecord({
+    teamId,
+    userId,
+    teamCreditsId: creditsId,
+    usageType,
+    referenceType: referenceType ?? 'batch_refund',
+    referenceId,
+    creditsUsed: -n,
+    isOverage,
+  } as any);
+}
+
+/**
  * Meter event names - must match what's configured in Stripe
  */
 const METER_EVENTS = {

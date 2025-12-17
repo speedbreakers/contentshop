@@ -1,0 +1,307 @@
+import { z } from 'zod';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { db } from '@/lib/db/drizzle';
+import { getTeamForUser, getUser } from '@/lib/db/queries';
+import { createSet } from '@/lib/db/sets';
+import { createBatch, listBatches, aggregateBatchJobStatus } from '@/lib/db/batches';
+import { createGenerationJob } from '@/lib/db/generation-jobs';
+import { products, productVariants, sets } from '@/lib/db/schema';
+import { checkCredits, deductCredits } from '@/lib/payments/credits';
+import {
+  baseGenerationInputSchema,
+  getGenerationWorkflow,
+  resolveGenerationWorkflowKey,
+} from '@/lib/workflows/generation';
+import { getMoodboardById, listMoodboardAssets } from '@/lib/db/moodboards';
+import { signDownloadToken } from '@/lib/uploads/signing';
+
+export const runtime = 'nodejs';
+
+const createSchema = z.object({
+  name: z.string().min(1).max(255),
+  variants: z
+    .array(
+      z.object({
+        variantId: z.number().int().positive(),
+        productImageUrls: z.array(z.string().min(1)).min(1).max(4),
+      })
+    )
+    .min(1)
+    .max(100),
+  settings: z.object({
+    numberOfVariations: z.number().int().min(1).max(10),
+    input: z.record(z.string(), z.any()).default({}),
+  }),
+});
+
+export async function GET(_request: Request) {
+  const team = await getTeamForUser();
+  if (!team) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const items = await listBatches(team.id, 50);
+  const withProgress = await Promise.all(
+    items.map(async (b) => ({
+      ...b,
+      progress: await aggregateBatchJobStatus(team.id, b.id),
+    }))
+  );
+
+  return Response.json({ items: withProgress });
+}
+
+export async function POST(request: Request) {
+  const team = await getTeamForUser();
+  if (!team) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json().catch(() => null);
+  const parsed = createSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: parsed.error.issues[0]?.message ?? 'Invalid request' },
+      { status: 400 }
+    );
+  }
+
+  const requestOrigin = new URL(request.url).origin;
+  const authCookie = request.headers.get('cookie');
+  const user = await getUser();
+
+  const variantsInput = parsed.data.variants;
+  const variantIds = Array.from(new Set(variantsInput.map((v) => v.variantId)));
+
+  // Validate variants belong to team and are not deleted.
+  const variants = await db.query.productVariants.findMany({
+    where: and(
+      eq(productVariants.teamId, team.id),
+      inArray(productVariants.id, variantIds),
+      isNull(productVariants.deletedAt)
+    ),
+    columns: { id: true, productId: true },
+  });
+
+  if (variants.length !== variantIds.length) {
+    return Response.json({ error: 'One or more variants not found' }, { status: 404 });
+  }
+
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+
+  // Preload products (for category/title used in workflow key + prompts)
+  const productIds = Array.from(new Set(variants.map((v) => v.productId)));
+  const productsRows = await db.query.products.findMany({
+    where: and(eq(products.teamId, team.id), inArray(products.id, productIds), isNull(products.deletedAt)),
+    columns: { id: true, title: true, category: true },
+  });
+  const productById = new Map(productsRows.map((p) => [p.id, p]));
+
+  // Optional moodboard enrichment shared across jobs.
+  const settingsInput = (parsed.data.settings.input ?? {}) as Record<string, unknown>;
+  const numberOfVariations = parsed.data.settings.numberOfVariations;
+
+  let moodboard: {
+    id: number;
+    name: string;
+    styleProfile: Record<string, unknown>;
+    assetFileIds: number[];
+    assetUrls: string[];
+    styleAppendix: string;
+  } | null = null;
+
+  const moodboardIdRaw = settingsInput.moodboard_id;
+  if (typeof moodboardIdRaw === 'number' && Number.isFinite(moodboardIdRaw) && moodboardIdRaw > 0) {
+    const mb = await getMoodboardById(team.id, Number(moodboardIdRaw));
+    if (!mb) return Response.json({ error: 'Moodboard not found' }, { status: 404 });
+
+    const assets = await listMoodboardAssets(team.id, mb.id);
+    const exp = Date.now() + 1000 * 60 * 60;
+    const assetUrls = assets.map((a) => {
+      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
+      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
+    });
+
+    const profile = (mb.styleProfile ?? {}) as Record<string, unknown>;
+    const typography = (profile.typography ?? {}) as Record<string, unknown>;
+    const rules = Array.isArray((typography as any).rules) ? (typography as any).rules : [];
+    const doNot = Array.isArray((profile as any).do_not) ? (profile as any).do_not : [];
+    const styleAppendix = [
+      (typography as any).tone ? `Tone: ${(typography as any).tone}` : '',
+      (typography as any).font_family ? `Font family: ${(typography as any).font_family}` : '',
+      (typography as any).case ? `Text case: ${(typography as any).case}` : '',
+      rules.length ? `Typography rules: ${rules.join('; ')}` : '',
+      doNot.length ? `Do not: ${doNot.join('; ')}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    moodboard = {
+      id: mb.id,
+      name: mb.name,
+      styleProfile: profile,
+      assetFileIds: assets.map((a) => a.uploadedFileId),
+      assetUrls,
+      styleAppendix,
+    };
+  }
+
+  // Credits: upfront for all jobs.
+  const totalImages = variantIds.length * numberOfVariations;
+  const creditCheck = await checkCredits(team.id, 'image', totalImages);
+  if (!creditCheck.allowed) {
+    return Response.json(
+      {
+        error: 'insufficient_credits',
+        reason: creditCheck.reason,
+        remaining: creditCheck.remaining,
+        required: totalImages,
+        upgradeUrl: '/pricing',
+      },
+      { status: 402 }
+    );
+  }
+
+  if (creditCheck.creditsId) {
+    await deductCredits(team.id, user?.id ?? null, 'image', totalImages, {
+      isOverage: creditCheck.isOverage,
+      creditsId: creditCheck.creditsId,
+      referenceType: 'variant_generation',
+      referenceId: undefined,
+    });
+  }
+
+  // Create shared batch folder (visible at batch-level).
+  const sharedFolder = await createSet(team.id, {
+    scopeType: 'batch',
+    name: `Batch — ${parsed.data.name}`,
+    description: 'Batch outputs',
+    productId: null,
+    variantId: null,
+    createdByUserId: user?.id ?? null,
+  });
+  if (!sharedFolder) return Response.json({ error: 'Failed to create batch folder' }, { status: 500 });
+
+  // Create batch record.
+  const batch = await createBatch(team.id, {
+    name: parsed.data.name,
+    status: 'queued',
+    settings: parsed.data.settings,
+    variantCount: variantIds.length,
+    imageCount: totalImages,
+    folderId: sharedFolder.id,
+  });
+  if (!batch) return Response.json({ error: 'Failed to create batch' }, { status: 500 });
+
+  // Tag shared folder with batchId for discoverability.
+  await db
+    .update(sets)
+    .set({ batchId: batch.id, updatedAt: new Date() })
+    .where(and(eq(sets.teamId, team.id), eq(sets.id, sharedFolder.id)));
+
+  // Create one job per variant.
+  const jobs: Array<{ id: number; variantId: number; status: string }> = [];
+  for (const v of variantsInput) {
+    const variant = variantById.get(v.variantId);
+    if (!variant) continue;
+    const product = productById.get(variant.productId);
+    if (!product) {
+      return Response.json({ error: `Product not found for variant ${variant.id}` }, { status: 404 });
+    }
+
+    const baseInput = {
+      ...settingsInput,
+      product_images: v.productImageUrls,
+      number_of_variations: numberOfVariations,
+    };
+    const ok = baseGenerationInputSchema.safeParse(baseInput);
+    if (!ok.success) {
+      return Response.json(
+        { error: ok.error.issues[0]?.message ?? 'Invalid generation settings' },
+        { status: 400 }
+      );
+    }
+
+    const validatedInput = ok.data as any;
+    const workflowKey = resolveGenerationWorkflowKey({
+      productCategory: product.category,
+      purpose: validatedInput.purpose,
+    });
+    const workflow = getGenerationWorkflow(workflowKey);
+    if (!workflow) {
+      return Response.json({ error: `Unsupported workflow for ${workflowKey}` }, { status: 400 });
+    }
+
+    const customInstructions = Array.isArray(validatedInput.custom_instructions)
+      ? validatedInput.custom_instructions
+      : [];
+    const prompts = Array.from({ length: numberOfVariations }, (_, idx) => {
+      const variationInstruction = customInstructions[idx] || '';
+      const variationInput = {
+        ...validatedInput,
+        custom_instructions: variationInstruction,
+        style_appendix: moodboard?.styleAppendix ?? '',
+      };
+      return workflow.buildPrompt({
+        input: variationInput as any,
+        product: { title: product.title, category: product.category },
+      });
+    });
+
+    // Per-variant batch folder (visible on variant page).
+    const perVariantFolder = await createSet(team.id, {
+      scopeType: 'variant',
+      name: `Batch — ${parsed.data.name}`,
+      description: `Batch outputs for ${parsed.data.name}`,
+      productId: variant.productId,
+      variantId: variant.id,
+      batchId: batch.id,
+      createdByUserId: user?.id ?? null,
+    });
+    if (!perVariantFolder) {
+      return Response.json({ error: 'Failed to create per-variant folder' }, { status: 500 });
+    }
+
+    const job = await createGenerationJob(team.id, {
+      productId: variant.productId,
+      variantId: variant.id,
+      type: 'image_generation',
+      batchId: batch.id,
+      metadata: {
+        schemaKey: workflow.key,
+        input: {
+          ...validatedInput,
+          moodboard_snapshot: moodboard
+            ? {
+                id: moodboard.id,
+                name: moodboard.name,
+                style_profile: moodboard.styleProfile,
+                asset_file_ids: moodboard.assetFileIds,
+              }
+            : null,
+          style_appendix: moodboard?.styleAppendix ?? '',
+        },
+        numberOfVariations,
+        prompts,
+        moodboardId: moodboard?.id ?? null,
+        extraReferenceImageUrls: moodboard?.assetUrls ?? [],
+        requestOrigin,
+        authCookie,
+        productTitle: product.title,
+        productCategory: product.category,
+        creditsId: creditCheck.creditsId,
+        isOverage: creditCheck.isOverage,
+        targetSetId: perVariantFolder.id,
+        sharedSetId: sharedFolder.id,
+      } as any,
+    });
+    if (!job) return Response.json({ error: 'Failed to create job' }, { status: 500 });
+    jobs.push({ id: job.id, variantId: variant.id, status: job.status });
+  }
+
+  return Response.json(
+    {
+      batch: { id: batch.id, status: batch.status, name: batch.name, folderId: batch.folderId },
+      jobs,
+    },
+    { status: 201 }
+  );
+}
+
+

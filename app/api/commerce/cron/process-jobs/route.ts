@@ -51,64 +51,6 @@ export async function GET(request: Request) {
 
     console.log(`[Cron] Found ${commerceJobsList.length} queued commerce jobs, ${generationJobsList.length} queued generation jobs`);
 
-    // Process commerce jobs
-    for (const job of commerceJobsList) {
-      // Check if we have enough time remaining (leave 10s buffer)
-      const elapsed = Date.now() - startTime;
-      if (elapsed > (maxDuration - 10) * 1000) {
-        console.log('[Cron] Approaching timeout, stopping early');
-        break;
-      }
-
-      try {
-        // Mark job as running
-        await db
-          .update(commerceJobs)
-          .set({ status: 'running', startedAt: new Date(), updatedAt: new Date() })
-          .where(eq(commerceJobs.id, job.id));
-
-        // Process based on job type
-        switch (job.type) {
-          case 'shopify.catalog_sync':
-            await processCatalogSync(job);
-            break;
-
-          case 'shopify.publish_variant_media':
-            // TODO: Implement in Phase 5
-            console.log(`[Cron] Publish job ${job.id} - not implemented yet`);
-            await db
-              .update(commerceJobs)
-              .set({
-                status: 'failed',
-                error: 'Not implemented yet',
-                completedAt: new Date(),
-                updatedAt: new Date(),
-              })
-              .where(eq(commerceJobs.id, job.id));
-            results.push({ id: job.id, type: job.type, status: 'failed', error: 'Not implemented' });
-            break;
-
-          default:
-            throw new Error(`Unknown job type: ${job.type}`);
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`[Cron] Commerce job ${job.id} error:`, errorMsg);
-
-        await db
-          .update(commerceJobs)
-          .set({
-            status: 'failed',
-            error: errorMsg,
-            completedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(commerceJobs.id, job.id));
-
-        results.push({ id: job.id, type: job.type, status: 'failed', error: errorMsg });
-      }
-    }
-
     // Process generation jobs
     for (const job of generationJobsList) {
       // Check if we have enough time remaining (leave 30s buffer for generation jobs as they take longer)

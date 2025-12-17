@@ -69,6 +69,10 @@ export type CreateVariantGenerationGeminiInput = CreateVariantGenerationInput & 
   productTitle: string;
   productCategory: string;
   extraReferenceImageUrls?: string[];
+  /** Optional: add outputs into this folder instead of default (must belong to this team+variant). */
+  targetSetId?: number | null;
+  /** Optional: also add outputs into this folder (e.g. shared batch folder). */
+  alsoAddToSetId?: number | null;
   /** Optional callback to update progress after each image (for queue-based processing) */
   onProgress?: (current: number, total: number, imageId: number) => Promise<void>;
 };
@@ -109,11 +113,11 @@ export async function createVariantGenerationWithProvidedOutputs(
   const gen =
     typeof input.generationId === 'number'
       ? await db.query.variantGenerations.findFirst({
-          where: and(
-            eq(variantGenerations.teamId, input.teamId),
-            eq(variantGenerations.id, input.generationId)
-          ),
-        })
+        where: and(
+          eq(variantGenerations.teamId, input.teamId),
+          eq(variantGenerations.id, input.generationId)
+        ),
+      })
       : null;
 
   const createdGen =
@@ -414,6 +418,21 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
   if (!gen) throw new Error('Failed to create generation');
 
   try {
+    // Choose target folder:
+    // - Prefer provided targetSetId (must belong to this team+variant and not deleted)
+    // - Else fallback to default folder (ensure it exists)
+    const targetFolder =
+      input.targetSetId
+        ? await db.query.sets.findFirst({
+          where: and(
+            eq(sets.teamId, input.teamId),
+            eq(sets.variantId, input.variantId),
+            eq(sets.id, input.targetSetId),
+            isNull(sets.deletedAt)
+          ),
+        })
+        : null;
+
     // Ensure default folder exists.
     const defaultFolder = await db.query.sets.findFirst({
       where: and(
@@ -424,7 +443,7 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
       ),
     });
 
-    const folder =
+    const ensuredDefault =
       defaultFolder ??
       (await db
         .insert(sets)
@@ -443,7 +462,19 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
         .returning()
         .then((rows) => rows[0] ?? null));
 
+    const folder = targetFolder ?? ensuredDefault;
     if (!folder) throw new Error('Failed to ensure default folder');
+
+    const alsoFolder =
+      input.alsoAddToSetId && input.alsoAddToSetId !== folder.id
+        ? await db.query.sets.findFirst({
+          where: and(
+            eq(sets.teamId, input.teamId),
+            eq(sets.id, input.alsoAddToSetId),
+            isNull(sets.deletedAt)
+          ),
+        })
+        : null;
 
     const productImages: string[] = Array.isArray((input.input as any)?.product_images)
       ? (input.input as any).product_images
@@ -542,6 +573,23 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
           createdAt: new Date(),
         });
 
+        // Optionally also add to a secondary folder (e.g. shared batch folder)
+        if (alsoFolder && alsoFolder.id !== folder.id) {
+          try {
+            await db.insert(setItems).values({
+              teamId: input.teamId,
+              setId: alsoFolder.id,
+              itemType: 'variant_image',
+              itemId: createdImage.id,
+              sortOrder: idx,
+              addedByUserId: null,
+              createdAt: new Date(),
+            });
+          } catch (e) {
+            // Ignore duplicate insert attempts (unique index on setId+itemType+itemId)
+          }
+        }
+
         // Call progress callback if provided (for queue-based processing)
         if (input.onProgress) {
           await input.onProgress(idx + 1, input.numberOfVariations, createdImage.id);
@@ -614,13 +662,13 @@ export async function createVariantEditWithGeminiOutput(input: CreateVariantEdit
     const targetFolder =
       input.targetSetId
         ? await db.query.sets.findFirst({
-            where: and(
-              eq(sets.teamId, input.teamId),
-              eq(sets.variantId, input.variantId),
-              eq(sets.id, input.targetSetId),
-              isNull(sets.deletedAt)
-            ),
-          })
+          where: and(
+            eq(sets.teamId, input.teamId),
+            eq(sets.variantId, input.variantId),
+            eq(sets.id, input.targetSetId),
+            isNull(sets.deletedAt)
+          ),
+        })
         : null;
 
     const defaultFolder = await db.query.sets.findFirst({
@@ -667,10 +715,10 @@ export async function createVariantEditWithGeminiOutput(input: CreateVariantEdit
     const refUrl = refUrlRaw ? resolveUrl(input.requestOrigin, refUrlRaw) : '';
     const refHeaders = refUrl
       ? buildSameOriginAuthHeaders({
-          requestOrigin: input.requestOrigin,
-          url: refUrl,
-          cookie: input.authCookie,
-        })
+        requestOrigin: input.requestOrigin,
+        url: refUrl,
+        cookie: input.authCookie,
+      })
       : undefined;
     const ref = refUrl ? await fetchAsBytes(refUrl, refHeaders ? { headers: refHeaders } : undefined) : null;
 
@@ -811,6 +859,8 @@ export async function processGenerationJob(
       productTitle: meta.productTitle ?? product.title,
       productCategory: meta.productCategory ?? product.category,
       extraReferenceImageUrls: meta.extraReferenceImageUrls ?? [],
+      targetSetId: (meta as any)?.targetSetId ? Number((meta as any).targetSetId) : null,
+      alsoAddToSetId: (meta as any)?.sharedSetId ? Number((meta as any).sharedSetId) : null,
       onProgress,
     });
 

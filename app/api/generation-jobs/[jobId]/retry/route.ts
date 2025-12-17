@@ -42,6 +42,15 @@ export async function POST(
   const meta = failedJob.metadata as GenerationJobMetadata | null;
   const numberOfVariations = meta?.numberOfVariations ?? 1;
 
+  // Prevent retrying a retry attempt.
+  // We only allow retrying "original" failed jobs (retryAttempt undefined/0).
+  if (meta && typeof (meta as any).retryOfJobId === 'number') {
+    return Response.json(
+      { error: 'Retry attempts cannot be retried. Please retry the original job instead.' },
+      { status: 400 }
+    );
+  }
+
   // Verify credits before retrying (fail fast)
   const creditCheck = await checkCredits(team.id, 'image', numberOfVariations);
 
@@ -91,8 +100,11 @@ export async function POST(
     productId: failedJob.productId,
     variantId: failedJob.variantId,
     type: failedJob.type as 'image_generation' | 'image_edit',
+    batchId: failedJob.batchId ?? null,
     metadata: {
       ...(meta ?? {}),
+      retryOfJobId: failedJob.id,
+      retryAttempt: ((meta as any)?.retryAttempt ?? 0) + 1,
       // Update credit info for the new job
       creditsId: creditCheck.creditsId,
       isOverage: creditCheck.isOverage,

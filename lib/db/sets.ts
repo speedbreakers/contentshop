@@ -60,6 +60,7 @@ export async function createSet(teamId: number, input: {
   scopeType?: string;
   productId?: number | null;
   variantId?: number | null;
+  batchId?: number | null;
   name: string;
   description?: string | null;
   createdByUserId?: number | null;
@@ -71,6 +72,7 @@ export async function createSet(teamId: number, input: {
       scopeType: input.scopeType ?? 'variant',
       productId: input.productId ?? null,
       variantId: input.variantId ?? null,
+      batchId: input.batchId ?? null,
       isDefault: false,
       name: input.name,
       description: input.description ?? null,

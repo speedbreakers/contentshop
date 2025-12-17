@@ -4,25 +4,25 @@ overview: Batch wizard adds a dedicated per-variant image-selection step (up to 
 todos:
   - id: api-image-candidates
     content: Add POST /api/batches/image-candidates to return per-variant generated image candidates (signed) + global uploads, with limits for payload size.
-    status: pending
+    status: completed
   - id: frontend-image-selection-step
     content: "Add Step 2 to the batch wizard: per-variant image selection (1..4) with sources: variant.imageUrl, generated images, uploads, and upload-new (POST /api/uploads kind=product)."
-    status: pending
+    status: completed
     dependencies:
       - api-image-candidates
   - id: api-batches-payload-images
     content: Update POST /api/batches to accept productImageUrls[] per variant and merge into workflowInput.product_images per job; validate 1..4.
-    status: pending
+    status: completed
     dependencies:
       - frontend-image-selection-step
   - id: settings-form-step3-reuse
     content: Move existing generation settings UI (excluding product images) into reusable component for Step 3.
-    status: pending
+    status: completed
     dependencies:
       - api-batches-payload-images
   - id: worker-batch-folders
     content: Ensure worker writes each output into both per-variant batch folder and shared batch folder for batch jobs.
-    status: pending
+    status: completed
     dependencies:
       - api-batches-payload-images
 ---
