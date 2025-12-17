@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/commerce/cron/process-jobs",
+      "schedule": "* * * * *"
+    }
+  ]
+}
+

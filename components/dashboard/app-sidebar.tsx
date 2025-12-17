@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useSWR, { mutate } from 'swr';
 import { useTheme } from 'next-themes';
-import { Box, LogOut, Moon, Settings, Shield, Sun, Activity, Users, Store, BarChart3, CreditCard, Images } from 'lucide-react';
+import { Box, LogOut, Moon, Settings, Shield, Sun, Activity, Users, Store, BarChart3, CreditCard, Images, ShoppingBag } from 'lucide-react';
 import { CreditBalance } from '@/components/credits/credit-balance';
 
 import type { User } from '@/lib/db/schema';
@@ -119,6 +119,7 @@ export function AppSidebar() {
   const isGeneral = pathname.startsWith('/dashboard/general');
   const isActivity = pathname.startsWith('/dashboard/activity');
   const isSecurity = pathname.startsWith('/dashboard/security');
+  const isStorefronts = pathname.startsWith('/dashboard/storefronts');
   const isPricing = pathname.startsWith('/pricing');
 
   return (
@@ -196,6 +197,14 @@ export function AppSidebar() {
           <SidebarGroupLabel>Settings</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isStorefronts} tooltip="Storefronts">
+                  <Link href="/dashboard/storefronts">
+                    <ShoppingBag />
+                    <span>Storefronts</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isGeneral} tooltip="General">
                   <Link href="/dashboard/general">
