@@ -31,7 +31,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { LinkShopifyDialog } from './link-shopify-dialog';
-import { EllipsisVerticalIcon } from 'lucide-react';
+import { EllipsisVerticalIcon, ImageIcon } from 'lucide-react';
+import { EditVariantDialog } from './edit-variant-dialog';
 
 function optionSummary(product: FakeProduct, v: FakeVariant) {
   if (!v.optionValues.length) return '—';
@@ -49,6 +50,7 @@ export function VariantsTable(props: {
   const [variants, setVariants] = useState<FakeVariant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editVariantId, setEditVariantId] = useState<number | null>(null);
 
   // Track variant count from parent to trigger reload when new variants are added
   const parentVariantCount = props.product.variants?.length ?? 0;
@@ -73,6 +75,7 @@ export function VariantsTable(props: {
             productId: Number(v.productId ?? props.product.id),
             title: String(v.title),
             sku: v.sku ?? null,
+            imageUrl: v.imageUrl ?? null,
             shopifyVariantGid: v.shopifyVariantGid ?? null,
             optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
             updatedAt: String(v.updatedAt ?? new Date().toISOString()),
@@ -114,6 +117,7 @@ export function VariantsTable(props: {
         productId: Number(v.productId ?? props.product.id),
         title: String(v.title),
         sku: v.sku ?? null,
+        imageUrl: v.imageUrl ?? null,
         shopifyVariantGid: v.shopifyVariantGid ?? null,
         optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
         updatedAt: String(v.updatedAt ?? new Date().toISOString()),
@@ -179,6 +183,10 @@ export function VariantsTable(props: {
     ? variants.find((v) => v.id === linkVariantId) ?? null
     : null;
 
+  const editVariant = editVariantId
+    ? variants.find((v) => v.id === editVariantId) ?? null
+    : null;
+
   const deleteVariantEntity = deleteVariantId
     ? variants.find((v) => v.id === deleteVariantId) ?? null
     : null;
@@ -189,7 +197,7 @@ export function VariantsTable(props: {
         <CardHeader>
           <CardTitle>Variants</CardTitle>
           <div className="text-sm text-muted-foreground">
-            Default variant is required. Reassign default before removing it.
+            {variants.length} variants
           </div>
           {error ? <div className="text-sm text-red-600">{error}</div> : null}
         </CardHeader>
@@ -197,10 +205,8 @@ export function VariantsTable(props: {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Variant</TableHead>
-                <TableHead>Options</TableHead>
+                <TableHead colSpan={2}>Variant</TableHead>
                 <TableHead>SKU</TableHead>
-                <TableHead>Shopify</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -208,7 +214,7 @@ export function VariantsTable(props: {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                  <TableCell colSpan={6} className="text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
@@ -233,17 +239,26 @@ export function VariantsTable(props: {
                       }
                     }}
                   >
-                    <TableCell>
-                      <div className="font-medium">{v.title}</div>
-                      <div className="text-xs text-muted-foreground">#{v.id}</div>
-                      {isDefault ? <Badge className="mt-1">Default</Badge> : null}
+                    <TableCell colSpan={2}>
+                      <div className='flex items-center gap-x-4'>
+                        <div className="h-12 w-12 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
+                          {v.imageUrl ? (
+                            <img
+                              src={v.imageUrl}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div>
+                          {isDefault ? <Badge className="mt-1">Default</Badge> : <div className="font-medium">{v.title}</div>}
+                        </div>
+                      </div>
                     </TableCell>
 
-                    <TableCell className="text-sm">{optionSummary(props.product, v)}</TableCell>
                     <TableCell className="text-sm">{v.sku ?? '—'}</TableCell>
-                    <TableCell>
-                      {v.shopifyVariantGid ? <Badge>Linked</Badge> : <Badge variant="outline">Not linked</Badge>}
-                    </TableCell>
 
                     <TableCell
                       className="text-right"
@@ -264,13 +279,8 @@ export function VariantsTable(props: {
                               Manage assets
                             </Link>
                           </DropdownMenuItem>
-                          {!isDefault ? (
-                        <DropdownMenuItem onClick={() => setDefault(v.id)}>
-                              Set as default
-                            </DropdownMenuItem>
-                          ) : null}
-                          <DropdownMenuItem onClick={() => setLinkVariantId(v.id)}>
-                            {v.shopifyVariantGid ? 'Change Shopify link' : 'Link Shopify variant'}
+                          <DropdownMenuItem onClick={() => setEditVariantId(v.id)}>
+                            Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setDeleteVariantId(v.id)}
@@ -308,6 +318,29 @@ export function VariantsTable(props: {
         onSave={(gid) => {
           if (!linkVariantId) return;
           saveVariantLink(linkVariantId, gid);
+        }}
+      />
+
+      <EditVariantDialog
+        open={editVariantId !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditVariantId(null);
+        }}
+        productId={props.product.id}
+        variant={
+          editVariant
+            ? {
+                id: editVariant.id,
+                title: editVariant.title,
+                sku: editVariant.sku ?? null,
+                imageUrl: editVariant.imageUrl ?? null,
+              }
+            : null
+        }
+        onSaved={() => {
+          // Reload to reflect saved imageUrl/title/sku in the table
+          reloadVariants();
+          setEditVariantId(null);
         }}
       />
 

@@ -5,12 +5,52 @@ export function resolveUrl(origin: string, maybeRelative: string) {
   return maybeRelative;
 }
 
+function isLocalhostHost(host: string) {
+  const h = host.toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1' || h === '0.0.0.0';
+}
+
+function downgradeHttpsToHttpIfLocalhost(url: string) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:' && isLocalhostHost(u.hostname)) {
+      u.protocol = 'http:';
+      return u.toString();
+    }
+  } catch {
+    // ignore: not a valid absolute URL
+  }
+  return url;
+}
+
+function isSslPacketLengthTooLong(err: unknown) {
+  const anyErr = err as any;
+  return anyErr?.cause?.code === 'ERR_SSL_PACKET_LENGTH_TOO_LONG';
+}
+
 export async function fetchAsBytes(url: string, init?: RequestInit) {
-  const res = await fetch(url, init);
-  if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
-  const mimeType = res.headers.get('content-type') ?? 'application/octet-stream';
-  const ab = await res.arrayBuffer();
-  return { bytes: new Uint8Array(ab), mimeType };
+  const normalized = downgradeHttpsToHttpIfLocalhost(url);
+  try {
+    const res = await fetch(normalized, init);
+    if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
+    const mimeType = res.headers.get('content-type') ?? 'application/octet-stream';
+    const ab = await res.arrayBuffer();
+    return { bytes: new Uint8Array(ab), mimeType };
+  } catch (err) {
+    // If someone accidentally passed an https://localhost URL while the server is running on http,
+    // Node's TLS layer throws ERR_SSL_PACKET_LENGTH_TOO_LONG (it receives plaintext HTTP).
+    if (isSslPacketLengthTooLong(err)) {
+      const downgraded = downgradeHttpsToHttpIfLocalhost(url);
+      if (downgraded !== url) {
+        const res = await fetch(downgraded, init);
+        if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
+        const mimeType = res.headers.get('content-type') ?? 'application/octet-stream';
+        const ab = await res.arrayBuffer();
+        return { bytes: new Uint8Array(ab), mimeType };
+      }
+    }
+    throw err;
+  }
 }
 
 export function buildSameOriginAuthHeaders(args: {

@@ -1,53 +1,42 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { FakeProduct, FakeVariant } from '@/lib/fake/products';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Loader2Icon, PlusIcon, XIcon } from 'lucide-react';
 
-export function CreateVariantDialog(props: {
+export function EditVariantDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  product: FakeProduct;
-  onCreate: (variant: FakeVariant) => void;
+  productId: number;
+  variant: { id: number; title: string; sku: string | null; imageUrl: string | null } | null;
+  onSaved?: (next: { title: string; sku: string | null; imageUrl: string | null }) => void;
 }) {
-  const sortedOptions = useMemo(
-    () => [...props.product.options].sort((a, b) => a.position - b.position),
-    [props.product.options]
-  );
-
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState('');
   const [sku, setSku] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [values, setValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function reset() {
-    setTitle('');
-    setSku('');
-    setImageUrl('');
-    setValues({});
-  }
+  useEffect(() => {
+    if (!props.open) return;
+    setError(null);
+    setTitle(props.variant?.title ?? '');
+    setSku(props.variant?.sku ?? '');
+    setImageUrl(props.variant?.imageUrl ?? '');
+  }, [props.open, props.variant]);
 
-  async function uploadVariantImage(file: File) {
+  async function uploadImage(file: File) {
     const form = new FormData();
     form.append('kind', 'product');
     form.append('file', file);
@@ -70,70 +59,49 @@ export function CreateVariantDialog(props: {
     }
   }
 
-  async function create() {
-    const t = title.trim();
-    if (!t) return;
+  async function save() {
+    if (!props.variant) return;
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
 
     setSaving(true);
     setError(null);
-    const payload = {
-      title: t,
-      sku: sku.trim() || null,
-      imageUrl: imageUrl || null,
-      shopifyVariantGid: null,
-      optionValues: [],
-    };
-
     try {
-      const res = await fetch(`/api/products/${props.product.id}/variants`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(
+        `/api/products/${props.productId}/variants/${props.variant.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: nextTitle,
+            sku: sku.trim() || null,
+            imageUrl: imageUrl || null,
+          }),
+        }
+      );
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(data?.error ? String(data.error) : `Create failed (HTTP ${res.status})`);
+        throw new Error(data?.error ?? `Save failed (HTTP ${res.status})`);
       }
-      const v = data?.variant;
-      if (!v) throw new Error('Create failed (missing variant)');
 
-      props.onCreate({
-        id: Number(v.id),
-        productId: Number(v.productId ?? props.product.id),
-        title: String(v.title),
-        sku: v.sku ?? null,
-        imageUrl: v.imageUrl ?? payload.imageUrl,
-        shopifyVariantGid: v.shopifyVariantGid ?? null,
-        optionValues: Array.isArray(v.optionValues) ? v.optionValues : payload.optionValues,
-        updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+      props.onSaved?.({
+        title: nextTitle,
+        sku: sku.trim() || null,
+        imageUrl: imageUrl || null,
       });
-
       props.onOpenChange(false);
-      reset();
     } catch (e: any) {
-      setError(e?.message ? String(e.message) : 'Create failed');
+      setError(e?.message ? String(e.message) : 'Save failed');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Dialog
-      open={props.open}
-      onOpenChange={(open) => {
-        props.onOpenChange(open);
-        if (!open) reset();
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button variant="outline" onClick={() => props.onOpenChange(true)}>
-          Create variant
-        </Button>
-      </DialogTrigger>
-
-      <DialogContent>
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Create variant</DialogTitle>
+          <DialogTitle>Edit variant</DialogTitle>
         </DialogHeader>
 
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
@@ -150,7 +118,7 @@ export function CreateVariantDialog(props: {
                 onChange={(e) => {
                   const f = e.target.files?.[0] ?? null;
                   if (f) {
-                    uploadVariantImage(f);
+                    uploadImage(f);
                     e.currentTarget.value = '';
                   }
                 }}
@@ -158,11 +126,7 @@ export function CreateVariantDialog(props: {
 
               {imageUrl ? (
                 <>
-                  <img
-                    src={imageUrl}
-                    alt="Variant preview"
-                    className="h-full w-full object-cover"
-                  />
+                  <img src={imageUrl} alt="Variant preview" className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => setImageUrl('')}
@@ -192,7 +156,7 @@ export function CreateVariantDialog(props: {
                       <div className="rounded-full bg-muted p-3">
                         <PlusIcon className="h-5 w-5" />
                       </div>
-                      <span className="text-xs font-medium">Add image</span>
+                      <span className="text-xs font-medium">Change image</span>
                     </>
                   )}
                 </button>
@@ -202,35 +166,32 @@ export function CreateVariantDialog(props: {
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="create-variant-title">Title</FieldLabel>
+            <FieldLabel htmlFor="edit-variant-title">Title</FieldLabel>
             <Input
-              id="create-variant-title"
+              id="edit-variant-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Black / M"
               required
             />
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="create-variant-sku">SKU</FieldLabel>
+            <FieldLabel htmlFor="edit-variant-sku">SKU</FieldLabel>
             <Input
-              id="create-variant-sku"
+              id="edit-variant-sku"
               value={sku}
               onChange={(e) => setSku(e.target.value)}
               placeholder="Optional"
             />
-            <FieldDescription>Optional. Used for inventory and store operations.</FieldDescription>
           </Field>
-
         </FieldGroup>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => props.onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={create} disabled={saving || uploading}>
-            {saving ? 'Creating…' : 'Create'}
+          <Button onClick={save} disabled={!title.trim() || uploading || saving}>
+            {saving ? 'Saving…' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>

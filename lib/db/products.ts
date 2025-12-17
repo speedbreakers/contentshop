@@ -231,6 +231,7 @@ export type CreateVariantInput = {
   productId: number;
   title: string;
   sku?: string | null;
+  imageUrl?: string | null;
   shopifyVariantGid?: string | null;
   optionValues?: Array<{ productOptionId: number; value: string }>;
 };
@@ -244,6 +245,7 @@ export async function createVariant(input: CreateVariantInput) {
         productId: input.productId,
         title: input.title,
         sku: input.sku ?? null,
+        imageUrl: input.imageUrl ?? null,
         shopifyVariantGid: input.shopifyVariantGid ?? null,
       })
       .returning();
@@ -332,6 +334,7 @@ export async function getVariantById(
 export type UpdateVariantInput = {
   title?: string;
   sku?: string | null;
+  imageUrl?: string | null;
   shopifyVariantGid?: string | null;
   optionValues?: Array<{ productOptionId: number; value: string }>;
 };

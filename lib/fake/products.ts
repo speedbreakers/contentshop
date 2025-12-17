@@ -18,6 +18,7 @@ export type FakeVariant = {
   productId: number;
   title: string;
   sku?: string | null;
+  imageUrl?: string | null;
   shopifyVariantGid?: string | null;
   optionValues: FakeVariantOptionValue[];
   updatedAt: string; // ISO

@@ -3,6 +3,12 @@ import { db } from './drizzle';
 import { products, productVariants, setItems, sets, variantGenerations, variantImages } from './schema';
 import { put } from '@vercel/blob';
 import { generateText } from 'ai';
+import {
+  buildSameOriginAuthHeaders,
+  coerceResultFileToBytes,
+  fetchAsBytes,
+  resolveUrl,
+} from '@/lib/ai/shared/image-fetch';
 
 export async function listVariantGenerations(teamId: number, variantId: number) {
   return await db
@@ -48,6 +54,7 @@ export type CreateVariantGenerationInput = {
 
 export type CreateVariantGenerationGeminiInput = CreateVariantGenerationInput & {
   requestOrigin: string;
+  authCookie?: string | null;
   productTitle: string;
   productCategory: string;
   extraReferenceImageUrls?: string[];
@@ -223,38 +230,10 @@ export type CreateVariantEditGeminiInput = {
   };
   prompt?: string | null;
   requestOrigin: string;
+  authCookie?: string | null;
   productTitle: string;
   productCategory: string;
 };
-
-function resolveUrl(origin: string, maybeRelative: string) {
-  if (!maybeRelative) return maybeRelative;
-  if (maybeRelative.startsWith('http://') || maybeRelative.startsWith('https://')) return maybeRelative;
-  if (maybeRelative.startsWith('/')) return `${origin}${maybeRelative}`;
-  return maybeRelative;
-}
-
-async function fetchAsBytes(url: string) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
-  const mimeType = res.headers.get('content-type') ?? 'application/octet-stream';
-  const ab = await res.arrayBuffer();
-  return { bytes: new Uint8Array(ab), mimeType };
-}
-
-function coerceResultFileToBytes(file: any): { bytes: Uint8Array; mimeType: string } {
-  const mimeType = file?.mediaType ?? file?.mimeType ?? 'image/png';
-  if (typeof file?.base64 === 'string') {
-    return { bytes: new Uint8Array(Buffer.from(file.base64, 'base64')), mimeType };
-  }
-  if (file?.data instanceof Uint8Array) {
-    return { bytes: file.data, mimeType };
-  }
-  if (file?.data && typeof file.data === 'object' && typeof file.data.length === 'number') {
-    return { bytes: new Uint8Array(file.data), mimeType };
-  }
-  throw new Error('Unsupported result.files entry (no base64/data)');
-}
 
 /**
  * MVP helper: creates a generation record and N output images (mock URLs),
@@ -463,7 +442,16 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
       ...productImages.map((u) => resolveUrl(input.requestOrigin, String(u))),
       ...extra.map((u) => resolveUrl(input.requestOrigin, String(u))),
     ];
-    const referenceImages = await Promise.all(resolved.map(fetchAsBytes));
+    const referenceImages = await Promise.all(
+      resolved.map((url) => {
+        const headers = buildSameOriginAuthHeaders({
+          requestOrigin: input.requestOrigin,
+          url,
+          cookie: input.authCookie,
+        });
+        return fetchAsBytes(url, headers ? { headers } : undefined);
+      })
+    );
 
     // The API now resolves a workflow-specific prompt (category × purpose).
     // Keep this fallback for older callers.
@@ -651,11 +639,23 @@ export async function createVariantEditWithGeminiOutput(input: CreateVariantEdit
     if (!folder) throw new Error('Failed to ensure default folder');
 
     const baseUrl = resolveUrl(input.requestOrigin, String(input.input.base_image_url));
-    const base = await fetchAsBytes(baseUrl);
+    const baseHeaders = buildSameOriginAuthHeaders({
+      requestOrigin: input.requestOrigin,
+      url: baseUrl,
+      cookie: input.authCookie,
+    });
+    const base = await fetchAsBytes(baseUrl, baseHeaders ? { headers: baseHeaders } : undefined);
 
     const refUrlRaw = input.input.reference_image_url?.trim?.() ? String(input.input.reference_image_url) : '';
     const refUrl = refUrlRaw ? resolveUrl(input.requestOrigin, refUrlRaw) : '';
-    const ref = refUrl ? await fetchAsBytes(refUrl) : null;
+    const refHeaders = refUrl
+      ? buildSameOriginAuthHeaders({
+          requestOrigin: input.requestOrigin,
+          url: refUrl,
+          cookie: input.authCookie,
+        })
+      : undefined;
+    const ref = refUrl ? await fetchAsBytes(refUrl, refHeaders ? { headers: refHeaders } : undefined) : null;
 
     const instructions = (input.input.edit_instructions ?? input.prompt ?? '').trim();
     const prompt =

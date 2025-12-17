@@ -252,6 +252,7 @@ export const productVariants = pgTable(
 
     title: varchar('title', { length: 255 }).notNull(),
     sku: varchar('sku', { length: 120 }),
+    imageUrl: text('image_url'),
 
     // Manual Shopify linking
     shopifyVariantGid: text('shopify_variant_gid'),

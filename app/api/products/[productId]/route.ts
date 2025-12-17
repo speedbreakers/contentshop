@@ -30,11 +30,13 @@ export async function GET(
 
 const patchSchema = z.object({
   title: z.string().min(1).optional(),
-  category: z.enum(['apparel', 'electronics', 'jewellery']).optional(),
+  // Stored as a varchar; keep flexible so UI can add new categories without API changes.
+  category: z.string().min(1).max(30).optional(),
   vendor: z.string().optional().nullable(),
   productType: z.string().optional().nullable(),
   handle: z.string().optional().nullable(),
   tags: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
   status: z.string().optional(),
   shopifyProductGid: z.string().optional().nullable(),
 });

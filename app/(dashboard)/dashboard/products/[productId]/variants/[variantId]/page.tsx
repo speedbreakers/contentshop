@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Store, ExternalLink } from 'lucide-react';
+import { Store, ExternalLink, PencilIcon, Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -31,9 +31,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import type { FakeProduct, FakeVariant } from '@/lib/fake/products';
-import type { FakeVariantAsset } from '@/lib/fake/variant-assets';
 import type { FakeSet } from '@/lib/fake/sets';
 import type { FakeSetItem } from '@/lib/fake/set-items';
+import { EditVariantDialog } from '../../_components/edit-variant-dialog';
 
 function formatWhen(iso: string) {
   const d = new Date(iso);
@@ -94,16 +94,15 @@ export default function VariantAssetsPage() {
   const [product, setProduct] = useState<FakeProduct | null>(null);
   const [variant, setVariant] = useState<FakeVariant | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editVariantOpen, setEditVariantOpen] = useState(false);
 
   const productCategory = product?.category ?? 'apparel';
 
-  const [assets, setAssets] = useState<FakeVariantAsset[]>([]);
   const [sets, setSets] = useState<FakeSet[]>([]);
   const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
   const [itemsBySetId, setItemsBySetId] = useState<Record<number, FakeSetItem[]>>({});
 
-  const [viewAllOpen, setViewAllOpen] = useState(false);
-  const [lightbox, setLightbox] = useState<{ kind: 'asset' | 'setItem'; id: number; setId?: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{ kind: 'setItem'; id: number; setId?: number } | null>(null);
   const [editInstructions, setEditInstructions] = useState('');
   const [editReferenceImageUrl, setEditReferenceImageUrl] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -119,7 +118,7 @@ export default function VariantAssetsPage() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [fetchMessage, setFetchMessage] = useState<string | null>(null);
 
-  const [deleteId, setDeleteId] = useState<{ kind: 'asset' | 'set' | 'setItem'; id: number; setId?: number } | null>(null);
+  const [deleteId, setDeleteId] = useState<{ kind: 'set' | 'setItem'; id: number; setId?: number } | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const [details, setDetails] = useState<{ setId: number; itemId: number } | null>(null);
 
@@ -254,15 +253,11 @@ export default function VariantAssetsPage() {
     };
   }, [productId, variantId]);
 
-  const lightboxAsset =
-    lightbox?.kind === 'asset' ? assets.find((a) => a.id === lightbox.id) ?? null : null;
   const lightboxSetItem =
     lightbox?.kind === 'setItem'
       ? (itemsBySetId[lightbox.setId ?? -1] ?? []).find((i) => i.id === lightbox.id) ?? null
       : null;
 
-  const deleteAsset =
-    deleteId?.kind === 'asset' ? assets.find((a) => a.id === deleteId.id) ?? null : null;
   const deleteSet =
     deleteId?.kind === 'set' ? sets.find((s) => s.id === deleteId.id) ?? null : null;
   const deleteSetItem =
@@ -279,8 +274,6 @@ export default function VariantAssetsPage() {
     ? sets.find((s) => s.id === details.setId) ?? null
     : null;
 
-  const selectedCount = assets.filter((a) => a.isSelected).length;
-  const hasShopifyLink = !!product?.shopifyProductGid;
   const defaultSetId = useMemo(() => sets.find((s) => s.isDefault)?.id ?? null, [sets]);
   const selectedGenerationCount = useMemo(
     () => Object.values(itemsBySetId).flat().filter((i) => i.isSelected).length,
@@ -299,12 +292,6 @@ export default function VariantAssetsPage() {
     return selectedGenerationCountBySetId[activeFolderId] ?? 0;
   }, [activeFolderId, selectedGenerationCountBySetId]);
 
-  const currentAssets = assets
-    .slice()
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const previewAssets = currentAssets.slice(0, 3);
-  const hasMoreThanThree = currentAssets.length > 3;
-
   function optionSummary() {
     if (!product || !variant) return '—';
     if (!variant.optionValues.length) return '—';
@@ -314,12 +301,6 @@ export default function VariantAssetsPage() {
       .join(', ');
   }
 
-  function toggleSelected(assetId: number) {
-    setAssets((prev) =>
-      prev.map((a) => (a.id === assetId ? { ...a, isSelected: !a.isSelected } : a))
-    );
-  }
-
   function toggleSetItemSelected(setId: number, itemId: number) {
     setItemsBySetId((prev) => ({
       ...prev,
@@ -327,43 +308,6 @@ export default function VariantAssetsPage() {
         i.id === itemId ? { ...i, isSelected: !i.isSelected } : i
       ),
     }));
-  }
-
-  function mockFetchLatest() {
-    if (!hasShopifyLink) {
-      setFetchMessage('Link a Shopify product to fetch latest assets.');
-      return;
-    }
-    setFetchMessage('Fetching latest assets from Shopify…');
-    setTimeout(() => {
-      const now = new Date().toISOString();
-      const id1 = Math.floor(Date.now() / 1000);
-      const id2 = id1 + 1;
-      setAssets((prev) => [
-        {
-          id: id1,
-          variantId,
-          createdAt: now,
-          kind: 'generated',
-          status: 'ready',
-          source: 'shopify',
-          url: placeholderUrl('Shopify latest', id1, 640),
-          isSelected: false,
-        },
-        {
-          id: id2,
-          variantId,
-          createdAt: now,
-          kind: 'generated',
-          status: 'ready',
-          source: 'shopify',
-          url: placeholderUrl('Shopify latest 2', id2, 640),
-          isSelected: false,
-        },
-        ...prev,
-      ]);
-      setFetchMessage(`Fetched latest from Shopify (mock) at ${new Date().toLocaleString()}`);
-    }, 650);
   }
 
   async function generateNewAssets(label = 'generated-image'): Promise<boolean> {
@@ -471,18 +415,12 @@ export default function VariantAssetsPage() {
     }
   }
 
-  function openLightbox(assetId: number) {
-    setEditInstructions('');
-    setEditReferenceImageUrl('');
-    setLightbox({ kind: 'asset', id: assetId });
-  }
-
   async function generateFromEdit() {
     if (!defaultSetId) {
       setSyncMessage('Default folder is missing (unexpected).');
       return;
     }
-    const base = lightboxSetItem ?? lightboxAsset;
+    const base = lightboxSetItem;
     if (!base) return;
 
     setIsGenerating(true);
@@ -490,11 +428,11 @@ export default function VariantAssetsPage() {
 
     const now = new Date().toISOString();
     const draftId = -Date.now();
-    const baseLabel =
-      lightboxSetItem?.label?.trim() ? lightboxSetItem.label.trim() : lightboxAsset ? 'asset' : 'image';
+    const baseLabel = lightboxSetItem?.label?.trim()
+      ? lightboxSetItem.label.trim()
+      : 'image';
     const label = `edited-${baseLabel}`;
-    const targetFolderId =
-      lightbox?.kind === 'setItem' ? (lightbox.setId ?? defaultSetId) : defaultSetId;
+    const targetFolderId = lightbox?.setId ?? defaultSetId;
     const draft: FakeSetItem = {
       id: draftId,
       setId: targetFolderId,
@@ -567,30 +505,6 @@ export default function VariantAssetsPage() {
       setIsGenerating(false);
       setSyncMessage(err?.message ? String(err.message) : 'Edit failed.');
     }
-  }
-
-  function mockSyncFolder(setId: number) {
-    if (!hasShopifyLink) {
-      setSyncMessage('Link a Shopify product to sync.');
-      return;
-    }
-    const count = selectedGenerationCountBySetId[setId] ?? 0;
-    if (count === 0) {
-      setSyncMessage('Select at least one item in this folder to sync.');
-      return;
-    }
-    setSyncMessage('Syncing selected folder items to Shopify…');
-    setTimeout(() => {
-      setSyncMessage(`Synced ${count} item(s) from the folder to Shopify (mock).`);
-    }, 650);
-  }
-
-  function removeAsset(assetId: number) {
-    setAssets((prev) => prev.filter((a) => a.id !== assetId));
-    setDeleteId(null);
-    setLightbox((prev) =>
-      prev?.kind === 'asset' && prev.id === assetId ? null : prev
-    );
   }
 
   async function reloadFolderItems(setId: number) {
@@ -777,26 +691,20 @@ export default function VariantAssetsPage() {
           <Link href={`/dashboard/products/${product.id}`} className="hover:underline">
             Products / {product.title}
           </Link>{' '}
-          / Variant
+          / {variant.title}
         </div>
 
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-lg lg:text-2xl font-medium">Variant</h1>
+            <h1 className="text-lg lg:text-2xl font-medium">{variant.title}</h1>
             <div className="mt-2 text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">{variant.title}</span>
-              {variant.sku ? <span> · SKU: {variant.sku}</span> : null}
-              <span> · {optionSummary()}</span>
+              {variant.sku ? <span>SKU: {variant.sku}</span> : null}
             </div>
           </div>
 
           <div className="flex gap-2">
-            <Button
-              className="bg-orange-500 hover:bg-orange-600 text-white"
-              onClick={() => setGenerateOpen(true)}
-              disabled={isGenerating}
-            >
-              Generate
+            <Button variant="outline" size="icon" onClick={() => setEditVariantOpen(true)} aria-label="Edit variant">
+              <PencilIcon className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -808,63 +716,33 @@ export default function VariantAssetsPage() {
       {/* Linked Storefronts */}
       <LinkedStorefronts variantId={variantId} />
 
+      <EditVariantDialog
+        open={editVariantOpen}
+        onOpenChange={setEditVariantOpen}
+        productId={productId}
+        variant={
+          variant
+            ? {
+              id: variant.id,
+              title: variant.title,
+              sku: variant.sku ?? null,
+              imageUrl: variant.imageUrl ?? null,
+            }
+            : null
+        }
+        onSaved={(next) => {
+          setVariant((prev) => (prev ? { ...prev, ...next } : prev));
+          setProduct((prev) => {
+            if (!prev) return prev;
+            const nextVariants = Array.isArray(prev.variants)
+              ? prev.variants.map((v) => (v.id === variantId ? { ...v, ...next } : v))
+              : prev.variants;
+            return { ...prev, variants: nextVariants };
+          });
+        }}
+      />
+
       <div className="space-y-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Current assets</CardTitle>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={mockFetchLatest} disabled={isGenerating}>
-                Fetch latest
-              </Button>
-              {hasMoreThanThree ? (
-                <Button variant="outline" onClick={() => setViewAllOpen(true)}>
-                  View all
-                </Button>
-              ) : null}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {previewAssets.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No assets yet. Generate your first folder.
-              </p>
-            ) : (
-              <div className="flex items-center gap-3 overflow-x-auto pb-1">
-                {previewAssets.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => openLightbox(a.id)}
-                    className="relative h-16 w-16 shrink-0 rounded-md border overflow-hidden"
-                    title="Click to open"
-                  >
-                    <img src={a.url} alt="" className="h-full w-full object-cover" />
-                    {a.isSelected ? (
-                      <span className="absolute top-1 right-1 text-[9px] rounded-full bg-black/70 text-white px-1.5 py-0.5">
-                        ✓
-                      </span>
-                    ) : null}
-                    <span className="absolute bottom-1 left-1 text-[9px] rounded-full bg-black/70 text-white px-1.5 py-0.5">
-                      {a.source}
-                    </span>
-                  </button>
-                ))}
-
-                {hasMoreThanThree ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => setViewAllOpen(true)}
-                  >
-                    View all ({currentAssets.length})
-                  </Button>
-                ) : null}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div>
@@ -875,11 +753,14 @@ export default function VariantAssetsPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setNewSetOpen(true)}>
-                New folder
+              <Button
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+                onClick={() => setGenerateOpen(true)}
+                disabled={isGenerating}
+              >
+                Generate
               </Button>
               <Button
-                size="sm"
                 variant="outline"
                 onClick={() => setMoveOpen(true)}
                 disabled={!activeFolderId || selectedGenerationCountInActiveFolder === 0}
@@ -893,11 +774,23 @@ export default function VariantAssetsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               {/* Left pane: folders */}
               <div className="lg:col-span-4 rounded-md border p-3 space-y-3">
-                <Input
-                  value={searchFolders}
-                  onChange={(e) => setSearchFolders(e.target.value)}
-                  placeholder="Search folders…"
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="flex-1"
+                    value={searchFolders}
+                    onChange={(e) => setSearchFolders(e.target.value)}
+                    placeholder="Search folders…"
+                  />
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => setNewSetOpen(true)}
+                    aria-label="New folder"
+                    title="New folder"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
 
                 <div className="space-y-2">
                   {sets
@@ -947,16 +840,6 @@ export default function VariantAssetsPage() {
                               >
                                 Download folder
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={() => mockSyncFolder(s.id)}
-                                disabled={
-                                  isGenerating ||
-                                  !hasShopifyLink ||
-                                  (selectedGenerationCountBySetId[s.id] ?? 0) === 0
-                                }
-                              >
-                                Sync folder
-                              </DropdownMenuItem>
 
                               {!s.isDefault ? (
                                 <>
@@ -1004,18 +887,6 @@ export default function VariantAssetsPage() {
                   </div>
 
                   <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (!activeFolderId) return;
-                        mockSyncFolder(activeFolderId);
-                      }}
-                      disabled={!activeFolderId || isGenerating || !hasShopifyLink || selectedGenerationCountInActiveFolder === 0}
-                      title={hasShopifyLink ? undefined : 'Link Shopify to sync'}
-                    >
-                      Sync
-                    </Button>
                   </div>
                 </div>
 
@@ -1113,49 +984,6 @@ export default function VariantAssetsPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* View all assets dialog */}
-      <Dialog open={viewAllOpen} onOpenChange={setViewAllOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>All assets</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {currentAssets.map((a) => (
-              <div key={a.id} className="relative rounded-md border overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => openLightbox(a.id)}
-                  className="block w-full"
-                  title="Open"
-                >
-                  <img src={a.url} alt="" className="h-28 w-full object-cover" />
-                </button>
-                <div className="flex items-center justify-between p-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={a.status === 'ready' ? 'secondary' : 'outline'}>
-                      {a.status}
-                    </Badge>
-                    <Badge variant="outline">{a.source}</Badge>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={a.isSelected ? 'default' : 'outline'}
-                    onClick={() => toggleSelected(a.id)}
-                  >
-                    {a.isSelected ? 'Selected' : 'Select'}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewAllOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Generate dialog */}
       <Dialog
@@ -1318,12 +1146,12 @@ export default function VariantAssetsPage() {
               </Field>
             </FieldGroup>
 
-             {genSubmitError ? (
-               <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                 {genSubmitError}
-               </div>
-             ) : null}
-             <DialogFooter className="mt-4">
+            {genSubmitError ? (
+              <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {genSubmitError}
+              </div>
+            ) : null}
+            <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setGenerateOpen(false)} disabled={isGenerating}>
                 Cancel
               </Button>
@@ -1430,8 +1258,6 @@ export default function VariantAssetsPage() {
               <div className="aspect-square relative">
                 {lightboxSetItem ? (
                   <img src={lightboxSetItem.url} alt="" className="w-full h-full object-contain" />
-                ) : lightboxAsset ? (
-                  <img src={lightboxAsset.url} alt="" className="w-full h-full object-contain" />
                 ) : null}
 
                 <div className="absolute bottom-2 flex justify-between w-full px-4">
@@ -1443,13 +1269,6 @@ export default function VariantAssetsPage() {
                         </Badge>
                         <Badge variant="outline">{formatWhen(lightboxSetItem.createdAt)}</Badge>
                       </>
-                    ) : lightboxAsset ? (
-                      <>
-                        <Badge variant={lightboxAsset.status === 'ready' ? 'secondary' : 'outline'}>
-                          {lightboxAsset.status}
-                        </Badge>
-                        <Badge variant="outline">{lightboxAsset.source}</Badge>
-                      </>
                     ) : null}
                   </div>
                   <Button
@@ -1460,14 +1279,9 @@ export default function VariantAssetsPage() {
                         await downloadImage(lightboxSetItem);
                         return;
                       }
-                      if (lightboxAsset) {
-                        const file = `asset-${lightboxAsset.id}.png`;
-                        await downloadFromUrl(lightboxAsset.url, file);
-                      }
                     }}
                     disabled={
-                      (!lightboxSetItem && !lightboxAsset) ||
-                      (lightboxSetItem ? lightboxSetItem.status !== 'ready' : lightboxAsset?.status !== 'ready')
+                      !lightboxSetItem || lightboxSetItem.status !== 'ready'
                     }
                     title="Download"
                   >
@@ -1532,7 +1346,7 @@ export default function VariantAssetsPage() {
                 ? 'Delete folder?'
                 : deleteId?.kind === 'setItem'
                   ? 'Remove item?'
-                  : 'Delete asset?'}
+                  : 'Remove item?'}
             </AlertDialogTitle>
           </AlertDialogHeader>
           <div className="text-sm text-muted-foreground">
@@ -1540,16 +1354,13 @@ export default function VariantAssetsPage() {
               ? `This will delete the folder “${deleteSet.name}”. Items will not be deleted.`
               : deleteId?.kind === 'setItem' && deleteSetItem
                 ? 'This will remove the item from the folder.'
-                : deleteAsset
-                  ? 'This will remove the selected asset from current assets.'
-                  : 'This will remove the item.'}
+                : 'This will remove the item.'}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteId(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (!deleteId) return;
-                if (deleteId.kind === 'asset') removeAsset(deleteId.id);
                 if (deleteId.kind === 'setItem') {
                   const sid = deleteId.setId;
                   if (!sid) return;

@@ -29,6 +29,7 @@ export async function GET(
 const createVariantSchema = z.object({
   title: z.string().min(1),
   sku: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
   shopifyVariantGid: z.string().optional().nullable(),
   optionValues: z
     .array(

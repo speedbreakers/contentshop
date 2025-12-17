@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,26 +11,63 @@ import { Input } from '@/components/ui/input';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import { VariantsTable } from './_components/variants-table';
 import { CreateVariantDialog } from './_components/create-variant-dialog';
-import { LinkShopifyDialog } from './_components/link-shopify-dialog';
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { ProductDescription } from './_components/product-description';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ImageIcon, Loader2Icon, PencilIcon, PlusIcon, XIcon } from 'lucide-react';
 
-function statusBadgeVariant(status: string) {
-  if (status === 'active') return 'default';
-  if (status === 'draft') return 'secondary';
-  return 'outline';
-}
+const PRODUCT_CATEGORIES = [
+  { value: 'apparel', label: 'Apparel' },
+  { value: 'footwear', label: 'Footwear' },
+  { value: 'accessories', label: 'Accessories' },
+  { value: 'bags', label: 'Bags' },
+  { value: 'beauty', label: 'Beauty' },
+  { value: 'home', label: 'Home & Living' },
+  { value: 'furniture', label: 'Furniture' },
+  { value: 'electronics', label: 'Electronics' },
+  { value: 'jewellery', label: 'Jewellery' },
+  { value: 'sports', label: 'Sports' },
+  { value: 'toys', label: 'Toys' },
+] as const;
+
+type ProductDetail = FakeProduct & { imageUrl?: string | null };
 
 export default function ProductDetailPage() {
   const params = useParams<{ productId: string }>();
   const productId = Number(params.productId);
 
-  const [product, setProduct] = useState<FakeProduct | null>(null);
+  const [product, setProduct] = useState<ProductDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [linkOpen, setLinkOpen] = useState(false);
   const [createVariantOpen, setCreateVariantOpen] = useState(false);
+
+  // Edit modal state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editCategory, setEditCategory] = useState<string>('apparel');
+  const [editTags, setEditTags] = useState('');
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const [editUploading, setEditUploading] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +88,7 @@ export default function ProductDetailPage() {
           setProduct(null);
           return;
         }
-        const mapped: FakeProduct = {
+        const mapped: ProductDetail = {
           id: Number(p.id),
           title: String(p.title),
           status: (p.status as any) ?? 'draft',
@@ -61,18 +98,19 @@ export default function ProductDetailPage() {
           handle: p.handle ?? null,
           tags: p.tags ?? null,
           shopifyProductGid: p.shopifyProductGid ?? null,
+          imageUrl: p.imageUrl ?? null,
           defaultVariantId: Number(p.defaultVariantId ?? (p.variants?.[0]?.id ?? 0)),
           options: Array.isArray(p.options) ? p.options : [],
           variants: Array.isArray(p.variants)
             ? p.variants.map((v: any) => ({
-                id: Number(v.id),
-                productId: Number(v.productId ?? p.id),
-                title: String(v.title),
-                sku: v.sku ?? null,
-                shopifyVariantGid: v.shopifyVariantGid ?? null,
-                optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
-                updatedAt: String(v.updatedAt ?? new Date().toISOString()),
-              }))
+              id: Number(v.id),
+              productId: Number(v.productId ?? p.id),
+              title: String(v.title),
+              sku: v.sku ?? null,
+              shopifyVariantGid: v.shopifyVariantGid ?? null,
+              optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
+              updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+            }))
             : [],
           updatedAt: String(p.updatedAt ?? new Date().toISOString()),
         };
@@ -105,9 +143,6 @@ export default function ProductDetailPage() {
     );
   }
 
-  const defaultVariant =
-    product.variants.find((v) => v.id === product.defaultVariantId) ?? null;
-
   function addVariant(variant: FakeVariant) {
     setProduct((p) => {
       if (!p) return p;
@@ -119,48 +154,74 @@ export default function ProductDetailPage() {
     });
   }
 
-  async function saveProductPatch(patch: Partial<Pick<FakeProduct, 'title' | 'vendor' | 'productType' | 'handle' | 'tags' | 'shopifyProductGid' | 'category' | 'status'>>) {
-    const current = product;
-    if (!current) return;
+  function openEdit() {
+    setEditTitle(product.title ?? '');
+    setEditCategory((product.category as unknown as string) ?? 'apparel');
+    setEditTags(product.tags ?? '');
+    setEditImageUrl(product.imageUrl ?? '');
+    setEditOpen(true);
+  }
+
+  async function uploadEditImage(file: File) {
+    const form = new FormData();
+    form.append('kind', 'product');
+    form.append('file', file);
+
+    setEditUploading(true);
+    try {
+      const res = await fetch('/api/uploads', { method: 'POST', body: form });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? 'Upload failed');
+
+      const url = data?.file?.url;
+      if (typeof url === 'string' && url.length > 0) {
+        setEditImageUrl(url);
+      }
+    } catch (e: any) {
+      setLoadError(e?.message ?? 'Upload failed');
+    } finally {
+      setEditUploading(false);
+    }
+  }
+
+  async function saveEdit() {
+    const title = editTitle.trim();
+    if (!title) return;
+
     setLoadError(null);
-    const res = await fetch(`/api/products/${current.id}`, {
+    const res = await fetch(`/api/products/${product.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({
+        title,
+        category: editCategory,
+        tags: editTags.trim() || null,
+        imageUrl: editImageUrl || null,
+      }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       setLoadError(data?.error ? String(data.error) : `Save failed (HTTP ${res.status})`);
       return;
     }
-    // Re-fetch to keep variants/options in sync.
-    setLoading(true);
-    fetch(`/api/products/${current.id}`)
-      .then((r) => r.json())
-      .then((j) => {
-        const p = j?.product;
-        if (!p) return;
-        setProduct((prev) =>
-          prev
-            ? {
-                ...prev,
-                title: p.title,
-                status: p.status,
-                category: p.category,
-                vendor: p.vendor,
-                productType: p.productType,
-                handle: p.handle,
-                tags: p.tags,
-                shopifyProductGid: p.shopifyProductGid,
-                defaultVariantId: p.defaultVariantId ?? prev.defaultVariantId,
-                options: Array.isArray(p.options) ? p.options : prev.options,
-                variants: Array.isArray(p.variants) ? p.variants : prev.variants,
-                updatedAt: p.updatedAt ?? prev.updatedAt,
-              }
-            : prev
-        );
-      })
-      .finally(() => setLoading(false));
+
+    const updated = data?.product;
+    if (updated) {
+      setProduct((prev) =>
+        prev
+          ? {
+            ...prev,
+            title: updated.title ?? prev.title,
+            category: updated.category ?? prev.category,
+            tags: updated.tags ?? prev.tags,
+            imageUrl: updated.imageUrl ?? prev.imageUrl,
+            updatedAt: updated.updatedAt ?? prev.updatedAt,
+          }
+          : prev
+      );
+    }
+
+    setEditOpen(false);
   }
 
   return (
@@ -175,36 +236,28 @@ export default function ProductDetailPage() {
         {loadError ? <div className="text-sm text-red-600 mb-2">{loadError}</div> : null}
 
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-lg lg:text-2xl font-medium">{product.title}</h1>
-            <div className="mt-2 flex gap-2 items-center flex-wrap">
-              <Badge
-                variant={statusBadgeVariant(product.status)}
-                className="capitalize"
-              >
-                {product.status}
-              </Badge>
-              <Badge variant="outline" className="capitalize">
-                {product.category}
-              </Badge>
-              {product.shopifyProductGid ? (
-                <Badge>Shopify linked</Badge>
+          <div className='flex gap-x-4'>
+            <div className="h-12 w-12 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
+              {product.imageUrl ? (
+                <img
+                  src={product.imageUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
               ) : (
-                <Badge variant="outline">Not linked</Badge>
+                <ImageIcon className="h-6 w-6 text-muted-foreground" />
               )}
-              {defaultVariant ? (
-                <span className="text-xs text-muted-foreground">
-                  Default variant:{' '}
-                  <span className="font-medium">{defaultVariant.title}</span>
-                </span>
-              ) : null}
+            </div>
+            <div>
+              <div className="font-medium text-xl">{product.title}</div>
+              <div className="text-xs text-muted-foreground capitalize">
+                {product.category}
+              </div>
             </div>
           </div>
 
           <div className="flex gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/products">Back</Link>
-            </Button>
+
 
             <CreateVariantDialog
               open={createVariantOpen}
@@ -213,11 +266,8 @@ export default function ProductDetailPage() {
               onCreate={addVariant}
             />
 
-            <Button
-              className="bg-orange-500 hover:bg-orange-600 text-white"
-              onClick={() => setLinkOpen(true)}
-            >
-              {product.shopifyProductGid ? 'Manage Shopify link' : 'Link Shopify'}
+            <Button variant="outline" onClick={openEdit} aria-label="Edit product">
+              <PencilIcon className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -228,147 +278,148 @@ export default function ProductDetailPage() {
           <Tabs defaultValue="variants">
             <TabsList>
               <TabsTrigger value="variants">Variants</TabsTrigger>
-              <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="description">Description</TabsTrigger>
-              <TabsTrigger value="sync">Sync</TabsTrigger>
             </TabsList>
 
             <TabsContent value="variants" className="mt-4">
               <VariantsTable product={product} onChange={setProduct} />
             </TabsContent>
 
-            <TabsContent value="details" className="mt-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Product details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <FieldGroup>
-                    <Field>
-                      <FieldLabel htmlFor="product-title">Title</FieldLabel>
-                      <Input
-                        id="product-title"
-                        value={product.title}
-                        onChange={(e) =>
-                          setProduct({ ...product, title: e.target.value })
-                        }
-                      />
-                    </Field>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Field>
-                        <FieldLabel htmlFor="product-vendor">Vendor</FieldLabel>
-                        <Input
-                          id="product-vendor"
-                          value={product.vendor ?? ''}
-                          onChange={(e) =>
-                            setProduct({
-                              ...product,
-                              vendor: e.target.value || null,
-                            })
-                          }
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="product-type">
-                          Product type
-                        </FieldLabel>
-                        <Input
-                          id="product-type"
-                          value={product.productType ?? ''}
-                          onChange={(e) =>
-                            setProduct({
-                              ...product,
-                              productType: e.target.value || null,
-                            })
-                          }
-                        />
-                      </Field>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Field>
-                        <FieldLabel htmlFor="product-handle">Handle</FieldLabel>
-                        <Input
-                          id="product-handle"
-                          value={product.handle ?? ''}
-                          onChange={(e) =>
-                            setProduct({
-                              ...product,
-                              handle: e.target.value || null,
-                            })
-                          }
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="product-tags">Tags</FieldLabel>
-                        <Input
-                          id="product-tags"
-                          value={product.tags ?? ''}
-                          onChange={(e) =>
-                            setProduct({
-                              ...product,
-                              tags: e.target.value || null,
-                            })
-                          }
-                        />
-                      </Field>
-                    </div>
-                  </FieldGroup>
-
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={() =>
-                        saveProductPatch({
-                          title: product.title,
-                          vendor: product.vendor ?? null,
-                          productType: product.productType ?? null,
-                          handle: product.handle ?? null,
-                          tags: product.tags ?? null,
-                        })
-                      }
-                      disabled={loading}
-                    >
-                      Save
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
             <TabsContent value="description" className="mt-4">
               <ProductDescription
                 productId={product.id}
-                isShopifyLinked={!!product.shopifyProductGid}
-                onRequestLinkShopify={() => setLinkOpen(true)}
+                isShopifyLinked={false}
+                onRequestLinkShopify={() => { }}
               />
-            </TabsContent>
-
-            <TabsContent value="sync" className="mt-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Sync (placeholder)</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  This will later sync the variant’s selected image/text to
-                  Shopify.
-                </CardContent>
-              </Card>
             </TabsContent>
           </Tabs>
         </div>
       </div>
 
-      <LinkShopifyDialog
-        open={linkOpen}
-        onOpenChange={setLinkOpen}
-        title={product.shopifyProductGid ? 'Manage Shopify product link' : 'Link Shopify product'}
-        label="Shopify Product GID"
-        value={product.shopifyProductGid ?? ''}
-        placeholder="gid://shopify/Product/..."
-        onSave={(gid) => saveProductPatch({ shopifyProductGid: gid || null })}
-        onUnlink={() => saveProductPatch({ shopifyProductGid: null })}
-      />
+      {/* Edit Product Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit product</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-6">
+            <div>
+              <FieldLabel className="mb-2 block">Product Image</FieldLabel>
+              <div className="group relative aspect-square w-full max-w-[180px] rounded-lg border-2 border-dashed border-muted-foreground/25 overflow-hidden bg-muted/50 hover:border-muted-foreground/40 transition-colors">
+                <input
+                  ref={editFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    if (f) {
+                      uploadEditImage(f);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                />
+                {editImageUrl ? (
+                  <>
+                    <img
+                      src={editImageUrl}
+                      alt="Product preview"
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditImageUrl('')}
+                      className="absolute top-2 right-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                      aria-label="Remove image"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => editFileInputRef.current?.click()}
+                      className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/30 transition-colors"
+                      aria-label="Change image"
+                    />
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => editFileInputRef.current?.click()}
+                    disabled={editUploading}
+                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {editUploading ? (
+                      <Loader2Icon className="h-8 w-8 animate-spin" />
+                    ) : (
+                      <>
+                        <div className="rounded-full bg-muted p-3">
+                          <PlusIcon className="h-5 w-5" />
+                        </div>
+                        <span className="text-xs font-medium">Change image</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Helps identify the product in listings
+              </p>
+            </div>
+
+            <FieldGroup className="gap-4">
+              <Field>
+                <FieldLabel htmlFor="edit-product-title">Title</FieldLabel>
+                <Input
+                  id="edit-product-title"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  required
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel>Category</FieldLabel>
+                <Select value={editCategory} onValueChange={(v) => setEditCategory(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRODUCT_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  Category controls the generation form shown on variants.
+                </FieldDescription>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="edit-product-tags">Tags</FieldLabel>
+                <Input
+                  id="edit-product-tags"
+                  value={editTags}
+                  onChange={(e) => setEditTags(e.target.value)}
+                  placeholder="tshirt, cotton, basics"
+                />
+                <FieldDescription>Comma-separated. Optional.</FieldDescription>
+              </Field>
+            </FieldGroup>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={saveEdit} disabled={!editTitle.trim() || editUploading}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

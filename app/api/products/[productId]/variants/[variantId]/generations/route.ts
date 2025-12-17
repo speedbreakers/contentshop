@@ -212,6 +212,7 @@ export async function POST(
         moodboardId: moodboard?.id ?? null,
         extraReferenceImageUrls: moodboard?.assetUrls ?? [],
         requestOrigin,
+        authCookie: request.headers.get('cookie'),
         productTitle: product.title,
         productCategory: product.category,
       });

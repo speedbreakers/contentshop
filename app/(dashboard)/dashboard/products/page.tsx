@@ -54,23 +54,29 @@ import {
 } from '@/components/ui/alert-dialog';
 import { EllipsisVerticalIcon, ImageIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react';
 
-function statusBadgeVariant(status: string) {
-  if (status === 'active') return 'default';
-  if (status === 'draft') return 'secondary';
-  return 'outline';
-}
+const PRODUCT_CATEGORIES = [
+  { value: 'apparel', label: 'Apparel' },
+  { value: 'footwear', label: 'Footwear' },
+  { value: 'accessories', label: 'Accessories' },
+  { value: 'bags', label: 'Bags' },
+  { value: 'beauty', label: 'Beauty' },
+  { value: 'home', label: 'Home & Living' },
+  { value: 'furniture', label: 'Furniture' },
+  { value: 'electronics', label: 'Electronics' },
+  { value: 'jewellery', label: 'Jewellery' },
+  { value: 'sports', label: 'Sports' },
+  { value: 'toys', label: 'Toys' },
+] as const;
 
 type ApiProduct = {
   id: number;
   title: string;
-  status: string;
-  category: 'apparel' | 'electronics' | 'jewellery';
+  category: string;
   vendor: string | null;
   productType: string | null;
   handle: string | null;
   tags: string | null;
   imageUrl: string | null;
-  shopifyProductGid: string | null;
   defaultVariantId: number | null;
   updatedAt: string;
   variantsCount: number;
@@ -85,14 +91,21 @@ export default function ProductsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newCategory, setNewCategory] = useState<'apparel' | 'electronics' | 'jewellery'>('apparel');
+  const [newCategory, setNewCategory] = useState<string>('apparel');
   const [newTags, setNewTags] = useState('');
   const [newImageUrl, setNewImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [linkProductId, setLinkProductId] = useState<number | null>(null);
-  const [linkGid, setLinkGid] = useState('');
+  // Edit modal state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editProductId, setEditProductId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editCategory, setEditCategory] = useState<string>('apparel');
+  const [editTags, setEditTags] = useState('');
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const [editUploading, setEditUploading] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,6 +167,28 @@ export default function ProductsPage() {
     }
   }
 
+  async function uploadEditProductImage(file: File) {
+    const form = new FormData();
+    form.append('kind', 'product');
+    form.append('file', file);
+
+    setEditUploading(true);
+    try {
+      const res = await fetch('/api/uploads', { method: 'POST', body: form });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? 'Upload failed');
+
+      const url = data?.file?.url;
+      if (typeof url === 'string' && url.length > 0) {
+        setEditImageUrl(url);
+      }
+    } catch (e: any) {
+      setLoadError(e?.message ?? 'Upload failed');
+    } finally {
+      setEditUploading(false);
+    }
+  }
+
   async function createProduct() {
     const title = newTitle.trim();
     if (!title) return;
@@ -165,7 +200,6 @@ export default function ProductsPage() {
         category: newCategory,
         tags: newTags.trim() || null,
         imageUrl: newImageUrl || null,
-        shopifyProductGid: null,
       }),
     });
 
@@ -192,17 +226,30 @@ export default function ProductsPage() {
     }
   }
 
-  function openLink(product: ApiProduct) {
-    setLinkProductId(product.id);
-    setLinkGid(product.shopifyProductGid ?? '');
+  function openEdit(product: ApiProduct) {
+    setEditProductId(product.id);
+    setEditTitle(product.title ?? '');
+    setEditCategory(product.category ?? 'apparel');
+    setEditTags(product.tags ?? '');
+    setEditImageUrl(product.imageUrl ?? '');
+    setEditOpen(true);
   }
 
-  async function saveLink() {
-    if (!linkProductId) return;
-    const res = await fetch(`/api/products/${linkProductId}`, {
+  async function saveEdit() {
+    if (!editProductId) return;
+    const title = editTitle.trim();
+    if (!title) return;
+
+    setLoadError(null);
+    const res = await fetch(`/api/products/${editProductId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shopifyProductGid: linkGid.trim() || null }),
+      body: JSON.stringify({
+        title,
+        category: editCategory,
+        tags: editTags.trim() || null,
+        imageUrl: editImageUrl || null,
+      }),
     });
 
     const data = await res.json().catch(() => null);
@@ -211,12 +258,13 @@ export default function ProductsPage() {
       return;
     }
 
-    const updated = data?.product as ApiProduct | undefined;
-    if (updated) {
+    const updated = data?.product as Partial<ApiProduct> | undefined;
+    if (updated?.id) {
       setItems((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
     }
-    setLinkProductId(null);
-    setLinkGid('');
+
+    setEditOpen(false);
+    setEditProductId(null);
   }
 
   async function deleteProduct(productId: number) {
@@ -235,7 +283,7 @@ export default function ProductsPage() {
         <div>
           <h1 className="text-lg lg:text-2xl font-medium">Products</h1>
           <p className="text-sm text-muted-foreground">
-            Manage products, variants, and Shopify links.
+            Manage products and variants.
           </p>
         </div>
 
@@ -332,15 +380,17 @@ export default function ProductsPage() {
                   <FieldLabel>Category</FieldLabel>
                   <Select
                     value={newCategory}
-                    onValueChange={(v) => setNewCategory(v as 'apparel' | 'electronics' | 'jewellery')}
+                    onValueChange={(v) => setNewCategory(v)}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="apparel">Apparel</SelectItem>
-                      <SelectItem value="electronics">Electronics</SelectItem>
-                      <SelectItem value="jewellery">Jewellery</SelectItem>
+                      {PRODUCT_CATEGORIES.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>
+                          {c.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <FieldDescription>
@@ -393,9 +443,7 @@ export default function ProductsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Product</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Variants</TableHead>
-                <TableHead>Shopify</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -403,13 +451,13 @@ export default function ProductsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
+                  <TableCell colSpan={3} className="text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
+                  <TableCell colSpan={3} className="text-muted-foreground">
                     No products found.
                   </TableCell>
                 </TableRow>
@@ -447,22 +495,7 @@ export default function ProductsPage() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={statusBadgeVariant(p.status)}
-                        className="capitalize"
-                      >
-                        {p.status}
-                      </Badge>
-                    </TableCell>
                     <TableCell>{p.variantsCount ?? '—'}</TableCell>
-                    <TableCell>
-                      {p.shopifyProductGid ? (
-                        <Badge>Linked</Badge>
-                      ) : (
-                        <Badge variant="outline">Not linked</Badge>
-                      )}
-                    </TableCell>
 
                     <TableCell
                       className="text-right"
@@ -481,8 +514,8 @@ export default function ProductsPage() {
                               View
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openLink(p)}>
-                            Link Shopify
+                          <DropdownMenuItem onClick={() => openEdit(p)}>
+                            Edit
                           </DropdownMenuItem>
 
                           <AlertDialog>
@@ -521,38 +554,142 @@ export default function ProductsPage() {
         </CardContent>
       </Card>
 
+      {/* Edit Product Dialog */}
       <Dialog
-        open={linkProductId !== null}
+        open={editOpen}
         onOpenChange={(open) => {
+          setEditOpen(open);
           if (!open) {
-            setLinkProductId(null);
-            setLinkGid('');
+            setEditProductId(null);
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Link Shopify product</DialogTitle>
+            <DialogTitle>Edit product</DialogTitle>
           </DialogHeader>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="link-shopify-product-gid">
-                Shopify Product GID
-              </FieldLabel>
-              <Input
-                id="link-shopify-product-gid"
-                value={linkGid}
-                onChange={(e) => setLinkGid(e.target.value)}
-                placeholder="gid://shopify/Product/..."
-              />
-              <FieldDescription>Paste a Shopify GraphQL product gid.</FieldDescription>
-            </Field>
-          </FieldGroup>
+
+          <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-6">
+            {/* Left column: Product Image */}
+            <div>
+              <FieldLabel className="mb-2 block">Product Image</FieldLabel>
+              <div className="group relative aspect-square w-full max-w-[180px] rounded-lg border-2 border-dashed border-muted-foreground/25 overflow-hidden bg-muted/50 hover:border-muted-foreground/40 transition-colors">
+                <input
+                  ref={editFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    if (f) {
+                      uploadEditProductImage(f);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                />
+                {editImageUrl ? (
+                  <>
+                    <img
+                      src={editImageUrl}
+                      alt="Product preview"
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditImageUrl('')}
+                      className="absolute top-2 right-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                      aria-label="Remove image"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => editFileInputRef.current?.click()}
+                      className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/30 transition-colors"
+                      aria-label="Change image"
+                    />
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => editFileInputRef.current?.click()}
+                    disabled={editUploading}
+                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {editUploading ? (
+                      <Loader2Icon className="h-8 w-8 animate-spin" />
+                    ) : (
+                      <>
+                        <div className="rounded-full bg-muted p-3">
+                          <PlusIcon className="h-5 w-5" />
+                        </div>
+                        <span className="text-xs font-medium">Change image</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">Helps identify the product in listings</p>
+            </div>
+
+            {/* Right column: Form fields */}
+            <FieldGroup className="gap-4">
+              <Field>
+                <FieldLabel htmlFor="edit-product-title">Title</FieldLabel>
+                <Input
+                  id="edit-product-title"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="Classic Cotton T‑Shirt"
+                  required
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel>Category</FieldLabel>
+                <Select value={editCategory} onValueChange={(v) => setEditCategory(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRODUCT_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  Category controls the generation form shown on variants.
+                </FieldDescription>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="edit-product-tags">Tags</FieldLabel>
+                <Input
+                  id="edit-product-tags"
+                  value={editTags}
+                  onChange={(e) => setEditTags(e.target.value)}
+                  placeholder="tshirt, cotton, basics"
+                />
+                <FieldDescription>Comma-separated. Optional.</FieldDescription>
+              </Field>
+            </FieldGroup>
+          </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setLinkProductId(null)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEditOpen(false);
+                setEditProductId(null);
+              }}
+            >
               Cancel
             </Button>
-            <Button onClick={saveLink}>Save</Button>
+            <Button onClick={saveEdit} disabled={!editTitle.trim()}>
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

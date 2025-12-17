@@ -205,96 +205,6 @@ export function ProductDescription(props: {
 
   return (
     <div className="space-y-6">
-      {/* Collapsible Shopify description */}
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
-          <div>
-            <CardTitle>Current Shopify Description</CardTitle>
-            <div className="mt-2 flex items-center gap-2">
-              {props.isShopifyLinked ? (
-                <Badge>Linked</Badge>
-              ) : (
-                <Badge variant="outline">Not linked</Badge>
-              )}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={mockRefresh}
-              disabled={!props.isShopifyLinked}
-              title={
-                props.isShopifyLinked
-                  ? 'Fetch latest description'
-                  : 'Link Shopify product to fetch'
-              }
-            >
-              Fetch latest
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowShopify((v) => !v)}
-            >
-              {showShopify ? 'Hide' : 'Show'}
-            </Button>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          {!props.isShopifyLinked ? (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Link a Shopify product to fetch the latest description.
-              </p>
-              <Button
-                className="bg-orange-500 hover:bg-orange-600 text-white"
-                onClick={props.onRequestLinkShopify}
-              >
-                Link Shopify
-              </Button>
-            </div>
-          ) : !shopifyHtml ? (
-            <p className="text-sm text-muted-foreground">
-              No Shopify description loaded yet. Click "Fetch latest".
-            </p>
-          ) : showShopify ? (
-            <Tabs defaultValue="preview">
-              <TabsList>
-                <TabsTrigger value="preview">Preview</TabsTrigger>
-                <TabsTrigger value="raw">Raw HTML</TabsTrigger>
-              </TabsList>
-              <TabsContent value="preview" className="mt-3">
-                <div
-                  className="text-sm leading-relaxed space-y-2 [&_ul]:list-disc [&_ul]:pl-5 [&_p]:my-2"
-                  dangerouslySetInnerHTML={{ __html: shopifyHtml }}
-                />
-              </TabsContent>
-              <TabsContent value="raw" className="mt-3">
-                <Textarea
-                  value={shopifyHtml}
-                  readOnly
-                  className="min-h-[180px] resize-none font-mono text-xs"
-                />
-              </TabsContent>
-            </Tabs>
-          ) : (
-            <div className="flex items-start justify-between gap-4">
-              <p className="text-sm text-muted-foreground">
-                {excerpt(shopifyHtml.replace(/<[^>]+>/g, ' '), 220)}
-              </p>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  await copyToClipboard(shopifyHtml);
-                }}
-              >
-                Copy
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Generated variations */}
       <div className="mx-auto space-y-6">
         <Card>
@@ -302,7 +212,7 @@ export function ProductDescription(props: {
             <div>
               <CardTitle>Generated Variations</CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                Generate, select, and sync a description to Shopify.
+                {versions.length} variations
               </p>
               {syncMessage ? (
                 <p className="text-xs text-muted-foreground mt-2">{syncMessage}</p>
@@ -312,12 +222,12 @@ export function ProductDescription(props: {
               ) : null}
             </div>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
+              {versions.length !== 0 ? <Button
                 onClick={() => setGenerateOpen(true)}
               >
                 Generate
               </Button>
+                : null}
             </div>
           </CardHeader>
           <CardContent>
@@ -327,9 +237,14 @@ export function ProductDescription(props: {
                 Loading…
               </div>
             ) : versions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No variations yet. Generate your first variation.
-              </p>
+              <div className="text-sm text-muted-foreground h-64 w-full flex flex-col items-center justify-center gap-y-4">
+                <span className="font-medium text-lg">No variations yet</span>
+                <Button
+                  onClick={() => setGenerateOpen(true)}
+                >
+                  Generate
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
                 {versions
@@ -341,20 +256,12 @@ export function ProductDescription(props: {
                       className="flex items-start justify-between gap-3 rounded-md border p-3"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {selectedVersionId === v.id ? (
-                            <Badge>Selected</Badge>
-                          ) : null}
-                          <Badge
-                            variant={v.status === 'ready' ? 'secondary' : v.status === 'failed' ? 'destructive' : 'outline'}
-                          >
-                            {v.status}
-                          </Badge>
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
                           {v.tone ? (
-                            <Badge variant="outline">{v.tone}</Badge>
+                            <Badge>{v.tone}</Badge>
                           ) : null}
                           {v.length ? (
-                            <Badge variant="outline">{v.length}</Badge>
+                            <Badge>{v.length}</Badge>
                           ) : null}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
@@ -366,11 +273,16 @@ export function ProductDescription(props: {
                           ) : v.status === 'failed' ? (
                             <span className="text-red-600">{v.errorMessage ?? 'Generation failed'}</span>
                           ) : (
-                            excerpt(v.content ?? '', 200)
+                            v.content
                           )}
                         </p>
                       </div>
 
+                      <Button size="sm" variant="outline" disabled={actionLoading} onClick={async () => {
+                        if (v.content) await copyToClipboard(v.content);
+                      }}>
+                        Copy
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button size="sm" variant="outline" disabled={actionLoading}>
@@ -378,7 +290,7 @@ export function ProductDescription(props: {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => {
                               setViewEditMode(false);
                               setViewId(v.id);
@@ -387,7 +299,7 @@ export function ProductDescription(props: {
                           >
                             View
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => {
                               setViewEditMode(true);
                               setViewId(v.id);
@@ -395,24 +307,6 @@ export function ProductDescription(props: {
                             disabled={v.status !== 'ready'}
                           >
                             Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={async () => {
-                              if (v.content) await copyToClipboard(v.content);
-                            }}
-                            disabled={!v.content}
-                          >
-                            Copy
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={async () => {
-                              if (!props.isShopifyLinked || v.status !== 'ready') return;
-                              await selectVersion(v.id);
-                              await mockSyncToShopify(v);
-                            }}
-                            disabled={!props.isShopifyLinked || v.status !== 'ready'}
-                          >
-                            Sync this to Shopify
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setDeleteId(v.id)}>
                             Delete

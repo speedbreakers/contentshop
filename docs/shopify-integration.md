@@ -1303,8 +1303,83 @@ async function cleanupExternalVariant(externalVariantId: number) {
 - Show linked storefronts on canonical variant pages
 
 ### Phase 4: Explicit publish (variant media only)
-- Publish modal on variant assets page
-- Job-based publish with history + retry
+- Add explicit publish from a generated image to a **linked external variant** (Shopify).
+- Publish is always **manual** (explicit user action) and publishes **variant media only**.
+
+#### UX (Variant Assets page)
+- Location: canonical variant page → generated images list/grid.
+- Add a **Publish** button on each generated image (or a bulk select → Publish action).
+- Publish modal:
+  - Step 1: **Choose storefront account** (only show accounts that are linked to this canonical variant).
+  - Step 2: **Choose external variant** (if multiple links exist under that account; otherwise preselect).
+  - Step 3: Confirm what will be published:
+    - The selected image URL (ContentShop blob URL)
+    - Destination: `{shopDomain} → {externalVariant.title}`
+  - Step 4: Submit → show progress (queued/running/success/failed).
+- Show publish history inline:
+  - “Last published” status badge for this image+destination.
+  - “View publish history” table (from `asset_publications`).
+
+#### Backend (API + Jobs)
+We publish via a job (to avoid Shopify + upload latency issues and allow retries).
+
+**1) Start publish**
+```
+POST /api/commerce/accounts/[accountId]/publish
+Body: {
+  variant_id: number,          // canonical variant id
+  variant_image_id: number,    // generated image id
+  external_product_id: string, // Shopify product GID
+  external_variant_id: string  // Shopify variant GID
+}
+Response: {
+  status: "queued",
+  job: { id: number, status: "queued" },
+  publication: { id: number, status: "pending" }
+}
+```
+
+Server behavior:
+- Validate: account belongs to team, canonical variant belongs to team, and the `(account_id, external_variant_id)` is linked to that canonical variant.
+- Create `asset_publications` row with `status='pending'` (attempts=1).
+- Create `commerce_jobs` row:
+  - `type='shopify.publish_variant_media'`
+  - `metadata`: `{ publicationId, variantImageId, externalProductId, externalVariantId }`
+
+**2) Fetch publish history**
+```
+GET /api/commerce/publications?variant_id=...  (or variant_image_id=...)
+Response: { publications: AssetPublication[] }
+```
+
+#### Job processor (Vercel cron)
+Update the cron worker (`/api/commerce/cron/process-jobs`) to process `shopify.publish_variant_media`:
+- Load job metadata + publication record
+- Download image bytes from ContentShop blob URL (`variant_images.url`)
+- Call Shopify publish pipeline (already scaffolded):
+  - staged upload → fileCreate → productVariantAppendMedia
+  - implemented in `lib/commerce/providers/shopify/publish.ts`
+- On success:
+  - `asset_publications.status='success'`
+  - persist `remote_media_id`
+  - mark `commerce_jobs.status='success'`
+- On failure:
+  - `asset_publications.status='failed'`, set `error`, increment `attempts`
+  - mark `commerce_jobs.status='failed'` (or keep as failed and rely on a retry worker)
+
+#### Retry strategy
+Add a retry cron (recommended) to retry failed publishes:
+- Endpoint: `GET /api/commerce/cron/retry-failed-publishes`
+- Rules:
+  - Retry only `asset_publications.status='failed'` and `attempts < 3`
+  - Create a new `commerce_jobs` row referencing the existing `publicationId` (or re-queue the original job)
+  - Backoff: at least 15 minutes between retries
+
+#### Idempotency / safety
+- Prevent duplicate publish spam:
+  - If there is already a `pending` publication for the same `(variant_image_id, account_id, external_variant_id)`, return 409.
+- Keep publish history immutable:
+  - Each attempt is recorded (either by incrementing attempts on the same row, or by creating a new row per attempt; v1 can use attempts on a single row as implemented).
 
 --- 
 

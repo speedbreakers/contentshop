@@ -18,7 +18,8 @@ export async function GET() {
 
 const createProductSchema = z.object({
   title: z.string().min(1),
-  category: z.enum(['apparel', 'electronics', 'jewellery']),
+  // Stored as a varchar; keep flexible so UI can add new categories without API changes.
+  category: z.string().min(1).max(30),
   vendor: z.string().optional().nullable(),
   productType: z.string().optional().nullable(),
   handle: z.string().optional().nullable(),
