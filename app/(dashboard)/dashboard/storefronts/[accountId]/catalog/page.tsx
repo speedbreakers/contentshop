@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import {
   ArrowLeft,
   Search,
@@ -14,6 +14,10 @@ import {
   Loader2,
   Store,
   Image as ImageIcon,
+  Plus,
+  Download,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,6 +42,25 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -59,9 +82,6 @@ interface ExternalProduct {
   productType: string | null;
   vendor: string | null;
   featuredImageUrl: string | null;
-  variantCount?: number;
-  linkedProductId?: number | null;
-  linkedProductName?: string | null;
 }
 
 interface ExternalVariant {
@@ -73,13 +93,29 @@ interface ExternalVariant {
   price: string | null;
   featuredImageUrl: string | null;
   selectedOptions: Array<{ name: string; value: string }> | null;
-  linkedVariantId?: number | null;
-  linkedVariantName?: string | null;
+}
+
+interface CanonicalProduct {
+  id: number;
+  name: string;
+  category: string | null;
+  variants: Array<{
+    id: number;
+    name: string;
+    sku: string | null;
+  }>;
+}
+
+interface VariantLink {
+  id: number;
+  variantId: number;
+  accountId: number;
+  externalVariantId: string;
+  status: string;
 }
 
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return null;
-  
   const statusLower = status.toLowerCase();
   if (statusLower === 'active') {
     return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">Active</Badge>;
@@ -119,11 +155,7 @@ function ProductImage({ src, alt }: { src: string | null; alt: string }) {
     );
   }
   return (
-    <img
-      src={src}
-      alt={alt}
-      className="h-12 w-12 rounded-md object-cover"
-    />
+    <img src={src} alt={alt} className="h-12 w-12 rounded-md object-cover" />
   );
 }
 
@@ -140,11 +172,46 @@ export default function ExternalCatalogPage({ params }: PageProps) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [expandedProducts, setExpandedProducts] = useState<Set<number>>(new Set());
 
+  // Link dialog state
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkingVariant, setLinkingVariant] = useState<{
+    externalProductId: string;
+    externalVariantId: string;
+    title: string;
+    sku: string | null;
+  } | null>(null);
+  const [canonicalSearch, setCanonicalSearch] = useState('');
+  const [selectedCanonicalVariant, setSelectedCanonicalVariant] = useState<number | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+
+  // Bulk import dialog state
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportLoading, setBulkImportLoading] = useState(false);
+  const [bulkImportResult, setBulkImportResult] = useState<{
+    productsCreated: number;
+    variantsLinked: number;
+    errors: string[];
+  } | null>(null);
+
+  // Notification
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(timer);
   }, [search]);
+
+  // Clear notification after 5s
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   // Fetch account details
   const { data: accountData, isLoading: accountLoading } = useSWR<{ account: CommerceAccount }>(
@@ -162,11 +229,39 @@ export default function ExternalCatalogPage({ params }: PageProps) {
     fetcher
   );
 
+  // Fetch unlinked counts for bulk import
+  const { data: bulkImportData, mutate: mutateBulkImport } = useSWR<{
+    unlinked: { products: number; variants: number };
+  }>(
+    `/api/commerce/accounts/${accountId}/bulk-import`,
+    fetcher
+  );
+
+  // Fetch canonical products for link picker
+  const { data: canonicalData } = useSWR<{ products: CanonicalProduct[] }>(
+    linkDialogOpen ? `/api/products/search?q=${encodeURIComponent(canonicalSearch)}` : null,
+    fetcher
+  );
+
+  // Fetch variant links for account
+  const { data: linksData, mutate: mutateLinks } = useSWR<{ links: VariantLink[] }>(
+    `/api/commerce/links/variants?account_id=${accountId}`,
+    fetcher
+  );
+
   const account = accountData?.account;
   const products = productsData?.products ?? [];
   const totalProducts = productsData?.pagination?.total ?? 0;
+  const unlinkedCounts = bulkImportData?.unlinked ?? { products: 0, variants: 0 };
+  const canonicalProducts = canonicalData?.products ?? [];
+  const variantLinks = linksData?.links ?? [];
 
-  // Toggle product expansion to show variants
+  // Build a map of external variant ID -> link
+  const linkMap = new Map<string, VariantLink>();
+  for (const link of variantLinks) {
+    linkMap.set(link.externalVariantId, link);
+  }
+
   function toggleProduct(productId: number) {
     setExpandedProducts((prev) => {
       const next = new Set(prev);
@@ -179,9 +274,115 @@ export default function ExternalCatalogPage({ params }: PageProps) {
     });
   }
 
-  // Navigate back
   function handleBack() {
     router.push('/dashboard/storefronts');
+  }
+
+  // Open link dialog
+  function openLinkDialog(variant: ExternalVariant, externalProductId: string) {
+    setLinkingVariant({
+      externalProductId,
+      externalVariantId: variant.externalVariantId,
+      title: variant.title,
+      sku: variant.sku,
+    });
+    setCanonicalSearch('');
+    setSelectedCanonicalVariant(null);
+    setLinkDialogOpen(true);
+  }
+
+  // Create link
+  async function handleCreateLink() {
+    if (!linkingVariant || !selectedCanonicalVariant) return;
+
+    setLinkLoading(true);
+    try {
+      const res = await fetch('/api/commerce/links/variants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          canonical_variant_id: selectedCanonicalVariant,
+          account_id: accountIdNum,
+          external_product_id: linkingVariant.externalProductId,
+          external_variant_id: linkingVariant.externalVariantId,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to create link');
+      }
+
+      setNotification({ type: 'success', message: 'Variant linked successfully' });
+      setLinkDialogOpen(false);
+      mutateLinks();
+      mutateBulkImport();
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to create link',
+      });
+    } finally {
+      setLinkLoading(false);
+    }
+  }
+
+  // Delete link
+  async function handleUnlink(linkId: number) {
+    try {
+      const res = await fetch(`/api/commerce/links/variants/${linkId}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to unlink');
+      }
+
+      setNotification({ type: 'success', message: 'Variant unlinked' });
+      mutateLinks();
+      mutateBulkImport();
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to unlink',
+      });
+    }
+  }
+
+  // Bulk import
+  async function handleBulkImport() {
+    setBulkImportLoading(true);
+    setBulkImportResult(null);
+
+    try {
+      const res = await fetch(`/api/commerce/accounts/${accountId}/bulk-import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Bulk import failed');
+      }
+
+      if (data.result) {
+        setBulkImportResult(data.result);
+        mutateLinks();
+        mutateBulkImport();
+        mutate(`/api/commerce/accounts/${accountId}/products?limit=50${searchParam}`);
+      }
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Bulk import failed',
+      });
+      setBulkImportOpen(false);
+    } finally {
+      setBulkImportLoading(false);
+    }
   }
 
   if (accountLoading) {
@@ -212,25 +413,59 @@ export default function ExternalCatalogPage({ params }: PageProps) {
   return (
     <section className="flex-1 p-4 lg:p-8">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" size="icon" onClick={handleBack}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div>
-          <h1 className="text-lg lg:text-2xl font-medium">{account.displayName} Catalog</h1>
-          {account.shopDomain && (
-            <a
-              href={`https://${account.shopDomain}/admin/products`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted-foreground hover:underline flex items-center gap-1"
-            >
-              View in Shopify
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={handleBack}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h1 className="text-lg lg:text-2xl font-medium">{account.displayName} Catalog</h1>
+            {account.shopDomain && (
+              <a
+                href={`https://${account.shopDomain}/admin/products`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-muted-foreground hover:underline flex items-center gap-1"
+              >
+                View in Shopify
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </div>
         </div>
+        {(unlinkedCounts.products > 0 || unlinkedCounts.variants > 0) && (
+          <Button onClick={() => setBulkImportOpen(true)}>
+            <Download className="mr-2 h-4 w-4" />
+            Bulk Import & Link (
+            {unlinkedCounts.products > 0 ? unlinkedCounts.products : unlinkedCounts.variants})
+          </Button>
+        )}
       </div>
+
+      {notification && (
+        <Alert
+          className={`mb-6 ${
+            notification.type === 'success'
+              ? 'border-green-500 bg-green-50 dark:bg-green-950'
+              : 'border-red-500 bg-red-50 dark:bg-red-950'
+          }`}
+        >
+          {notification.type === 'success' ? (
+            <Check className="h-4 w-4 text-green-600" />
+          ) : (
+            <AlertCircle className="h-4 w-4 text-red-600" />
+          )}
+          <AlertDescription
+            className={
+              notification.type === 'success'
+                ? 'text-green-800 dark:text-green-200'
+                : 'text-red-800 dark:text-red-200'
+            }
+          >
+            {notification.message}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader>
@@ -279,12 +514,160 @@ export default function ExternalCatalogPage({ params }: PageProps) {
                   accountId={accountIdNum}
                   isExpanded={expandedProducts.has(product.id)}
                   onToggle={() => toggleProduct(product.id)}
+                  linkMap={linkMap}
+                  onLink={openLinkDialog}
+                  onUnlink={handleUnlink}
                 />
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Link Dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Link Variant</DialogTitle>
+            <DialogDescription>
+              Link &quot;{linkingVariant?.title}&quot;
+              {linkingVariant?.sku && ` (SKU: ${linkingVariant.sku})`} to a canonical variant.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search canonical products or SKU..."
+                value={canonicalSearch}
+                onChange={(e) => setCanonicalSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            <div className="max-h-64 overflow-y-auto border rounded-lg divide-y">
+              {canonicalProducts.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  {canonicalSearch ? 'No products found' : 'Start typing to search...'}
+                </div>
+              ) : (
+                canonicalProducts.map((product) => (
+                  <div key={product.id} className="p-2">
+                    <div className="font-medium text-sm mb-1">{product.name}</div>
+                    <div className="space-y-1">
+                      {product.variants.map((variant) => (
+                        <label
+                          key={variant.id}
+                          className={cn(
+                            'flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-muted',
+                            selectedCanonicalVariant === variant.id && 'bg-primary/10'
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="canonical-variant"
+                            checked={selectedCanonicalVariant === variant.id}
+                            onChange={() => setSelectedCanonicalVariant(variant.id)}
+                            className="h-4 w-4"
+                          />
+                          <span className="text-sm">{variant.name}</span>
+                          {variant.sku && (
+                            <Badge variant="outline" className="text-xs">
+                              {variant.sku}
+                            </Badge>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateLink}
+              disabled={!selectedCanonicalVariant || linkLoading}
+            >
+              {linkLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Link2 className="mr-2 h-4 w-4" />
+              Link
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Import Dialog */}
+      <AlertDialog open={bulkImportOpen} onOpenChange={setBulkImportOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bulk Import & Link</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                {bulkImportResult ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-green-600">
+                      <Check className="h-5 w-5" />
+                      <span className="font-medium">Import Complete!</span>
+                    </div>
+                    <p>
+                      Created {bulkImportResult.productsCreated} products and linked{' '}
+                      {bulkImportResult.variantsLinked} variants.
+                    </p>
+                    {bulkImportResult.errors.length > 0 && (
+                      <div className="text-orange-600 text-sm">
+                        {bulkImportResult.errors.length} error(s) occurred during import.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <p>This will:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-sm">
+                      <li>Create canonical products for all unlinked external products</li>
+                      <li>Create canonical variants for each external variant</li>
+                      <li>Automatically link them together</li>
+                    </ol>
+                    <div className="bg-muted rounded-lg p-3 text-sm">
+                      <strong>Found:</strong> {unlinkedCounts.products} unlinked products
+                      {unlinkedCounts.variants > 0 && (
+                        <>, {unlinkedCounts.variants} unlinked variants</>
+                      )}
+                    </div>
+                    <p className="text-orange-600 text-sm">
+                      ⚠ This action cannot be undone easily.
+                    </p>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {bulkImportResult ? (
+              <AlertDialogAction onClick={() => setBulkImportOpen(false)}>
+                Done
+              </AlertDialogAction>
+            ) : (
+              <>
+                <AlertDialogCancel disabled={bulkImportLoading}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleBulkImport}
+                  disabled={bulkImportLoading || (unlinkedCounts.products === 0 && unlinkedCounts.variants === 0)}
+                >
+                  {bulkImportLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Download className="mr-2 h-4 w-4" />
+                  Import & Link All
+                </AlertDialogAction>
+              </>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -294,13 +677,18 @@ function ProductRow({
   accountId,
   isExpanded,
   onToggle,
+  linkMap,
+  onLink,
+  onUnlink,
 }: {
   product: ExternalProduct;
   accountId: number;
   isExpanded: boolean;
   onToggle: () => void;
+  linkMap: Map<string, VariantLink>;
+  onLink: (variant: ExternalVariant, externalProductId: string) => void;
+  onUnlink: (linkId: number) => void;
 }) {
-  // Fetch variants when expanded
   const { data: variantsData, isLoading: variantsLoading } = useSWR<{
     variants: ExternalVariant[];
   }>(
@@ -311,6 +699,9 @@ function ProductRow({
   );
 
   const variants = variantsData?.variants ?? [];
+
+  // Check if any variant is linked
+  const hasLinkedVariant = variants.some((v) => linkMap.has(v.externalVariantId));
 
   return (
     <Collapsible open={isExpanded} onOpenChange={onToggle}>
@@ -328,7 +719,7 @@ function ProductRow({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium truncate">{product.title}</span>
                 <StatusBadge status={product.status} />
-                <LinkStatusBadge linked={!!product.linkedProductId} />
+                <LinkStatusBadge linked={hasLinkedVariant} />
               </div>
               <div className="text-sm text-muted-foreground">
                 {product.handle && <span>{product.handle}</span>}
@@ -346,11 +737,6 @@ function ProductRow({
                 )}
               </div>
             </div>
-            {product.linkedProductName && (
-              <div className="text-sm text-muted-foreground">
-                → {product.linkedProductName}
-              </div>
-            )}
           </button>
         </CollapsibleTrigger>
 
@@ -373,46 +759,64 @@ function ProductRow({
                     <TableHead>SKU</TableHead>
                     <TableHead>Price</TableHead>
                     <TableHead>Options</TableHead>
-                    <TableHead>Link Status</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="w-24">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {variants.map((variant) => (
-                    <TableRow key={variant.id}>
-                      <TableCell>
-                        <ProductImage src={variant.featuredImageUrl} alt={variant.title} />
-                      </TableCell>
-                      <TableCell className="font-medium">{variant.title}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {variant.sku || '—'}
-                      </TableCell>
-                      <TableCell>
-                        {variant.price ? `$${variant.price}` : '—'}
-                      </TableCell>
-                      <TableCell>
-                        {variant.selectedOptions && variant.selectedOptions.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {variant.selectedOptions.map((opt, idx) => (
-                              <Badge key={idx} variant="outline" className="text-xs">
-                                {opt.name}: {opt.value}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <LinkStatusBadge linked={!!variant.linkedVariantId} />
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" disabled>
-                          {variant.linkedVariantId ? 'Unlink' : 'Link'}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {variants.map((variant) => {
+                    const link = linkMap.get(variant.externalVariantId);
+                    const isLinked = !!link;
+
+                    return (
+                      <TableRow key={variant.id}>
+                        <TableCell>
+                          <ProductImage src={variant.featuredImageUrl} alt={variant.title} />
+                        </TableCell>
+                        <TableCell className="font-medium">{variant.title}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {variant.sku || '—'}
+                        </TableCell>
+                        <TableCell>{variant.price ? `$${variant.price}` : '—'}</TableCell>
+                        <TableCell>
+                          {variant.selectedOptions && variant.selectedOptions.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {variant.selectedOptions.map((opt, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs">
+                                  {opt.name}: {opt.value}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <LinkStatusBadge linked={isLinked} />
+                        </TableCell>
+                        <TableCell>
+                          {isLinked ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onUnlink(link.id)}
+                            >
+                              Unlink
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onLink(variant, product.externalProductId)}
+                            >
+                              <Plus className="mr-1 h-3 w-3" />
+                              Link
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}
@@ -422,4 +826,3 @@ function ProductRow({
     </Collapsible>
   );
 }
-

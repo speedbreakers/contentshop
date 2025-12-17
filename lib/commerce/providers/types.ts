@@ -15,6 +15,7 @@ export type AccountStatus = 'connected' | 'disconnected';
 
 export type JobType =
   | 'shopify.catalog_sync'
+  | 'shopify.bulk_import'
   | 'shopify.publish_variant_media'
   | 'shopify.ingest_images';
 

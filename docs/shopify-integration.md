@@ -8,7 +8,9 @@ Key decisions (confirmed):
 - **Stores**: a team can connect **multiple storefront accounts**
 - **Catalog size**: ~100+ products per store
 - **Canonical model**: ContentShop stores **canonical products/variants** that can be **linked** to multiple external listings
-- **Linking**: external listings can link to **only one** canonical product/variant; linking is **manual** (no auto-match)
+- **Linking**: external listings can link to **only one** canonical product/variant
+  - **Individual linking**: manual picker to link single variant to existing canonical
+  - **Bulk Import & Link**: one-click create canonicals from all unlinked externals and auto-link
 - **Bulk**: support bulk import from Shopify
 
 --- 
@@ -181,9 +183,77 @@ UI:
   - link target (canonical product name)
   - action: "Link to canonical…" / "Create canonical + link"
 
-Manual linking flow (no auto-match):
-- Select canonical product from a searchable picker
-- Then map each external variant → canonical variant (manual mapping UI)
+#### Linking modes
+
+**1. Individual Linking (manual)**
+- User clicks "Link" on an unlinked external variant
+- Searchable picker shows existing canonical products/variants
+- User selects which canonical variant to link to
+- One link created at a time
+
+Flow:
+```
+[External Variant] → [Link Button] → [Picker Dialog] → [Select Canonical] → [Confirm]
+```
+
+Picker dialog:
+- Search by name or SKU
+- Show canonical product → variant hierarchy
+- Only show unlinked canonical variants (or allow re-linking with warning)
+
+**2. Bulk Import & Link (one-click)**
+- User clicks "Bulk Import & Link All" button in external catalog header
+- Confirmation dialog shows count of unlinked products/variants
+- System creates canonical products from ALL unlinked external products
+- System creates canonical variants for each external variant
+- Links are automatically created
+
+Flow:
+```
+[Bulk Import Button] → [Confirmation Dialog] → [Background Job] → [Progress] → [Done]
+```
+
+What gets created:
+- For each unlinked external product → new canonical `product` + `product_link`
+- For each external variant → new canonical `product_variant` + `variant_link`
+- Variant names/SKUs copied from external data
+
+#### API shape
+
+```
+POST /api/commerce/links/variants
+Body: {
+  canonical_variant_id: number,
+  account_id: number,
+  external_product_id: string,
+  external_variant_id: string
+}
+Response: { link: VariantLink }
+```
+
+```
+DELETE /api/commerce/links/variants/[linkId]
+Response: { success: true }
+```
+
+```
+POST /api/commerce/accounts/[accountId]/bulk-import
+Body: {}
+Response: {
+  job_id: number,
+  status: "queued"
+}
+```
+
+```
+GET /api/commerce/accounts/[accountId]/bulk-import/status
+Response: {
+  status: "running" | "success" | "failed",
+  products_created: number,
+  variants_linked: number,
+  error?: string
+}
+```
 
 ### D) Canonical product/variant pages
 
@@ -1221,15 +1291,18 @@ async function cleanupExternalVariant(externalVariantId: number) {
 - Sync wizard (pick store → run job)
 - External catalog browsing UI + search
 
-### Phase 3: Bulk "Create canonical products" from store
-- Create canonical products/variants in bulk from selected store
-- Auto-create links
+### Phase 3: Linking (manual + bulk)
+- **Individual linking**: Link single external variant to existing canonical variant
+  - Searchable canonical variant picker
+  - Link/unlink actions in external catalog
+- **Bulk Import & Link**: One-click import all unlinked external products
+  - Creates canonical products/variants from external data
+  - Auto-creates product_links and variant_links
+  - Background job with progress tracking
+- Show linked status in external catalog UI
+- Show linked storefronts on canonical variant pages
 
-### Phase 4: Manual linking UI
-- Link external product to existing canonical product
-- Map variants manually
-
-### Phase 5: Explicit publish (variant media only)
+### Phase 4: Explicit publish (variant media only)
 - Publish modal on variant assets page
 - Job-based publish with history + retry
 
@@ -1245,14 +1318,25 @@ async function cleanupExternalVariant(externalVariantId: number) {
 - Run bulk sync for store A, verify `external_*` counts ~100+ products
 - Run again (idempotent upsert; no duplicates)
 
-### Canonical creation
-- Bulk create canonicals from store A, verify:
-  - canonical products/variants created
-  - links created and enforce uniqueness
-
-### Manual linking
-- Link external product from store B to an existing canonical product from store A
+### Individual linking
+- Link single external variant from store A to an existing canonical variant
+- Verify link appears in external catalog UI
+- Verify linked storefront appears on canonical variant page
 - Ensure external variant cannot be linked to two canonicals (unique constraint)
+- Unlink a variant and verify status updates
+
+### Bulk Import & Link
+- Click "Bulk Import & Link All" for store A
+- Verify confirmation dialog shows correct unlinked count
+- Run bulk import job
+- Verify canonical products/variants created
+- Verify all links created automatically
+- Run again (should show 0 unlinked - idempotent)
+
+### Cross-store linking
+- Sync store B
+- Manually link external product from store B to canonical product created from store A
+- Verify one canonical can have links to multiple stores
 
 ### Publish
 - Publish a generated image to a linked external variant

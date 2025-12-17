@@ -2,10 +2,12 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from './drizzle';
 import {
   productDescriptions,
+  productLinks,
   productOptions,
   productVariants,
   products,
   sets,
+  variantLinks,
   variantOptionValues,
 } from './schema';
 import { generateText } from 'ai';
@@ -174,16 +176,53 @@ export async function updateProduct(
 
 export async function softDeleteProduct(teamId: number, productId: number) {
   const now = new Date();
+  
   return await db.transaction(async (tx) => {
-    await tx
-      .update(products)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(and(eq(products.teamId, teamId), eq(products.id, productId)));
+    // Get all variants for this product before deleting
+    const variants = await tx
+      .select({ id: productVariants.id })
+      .from(productVariants)
+      .where(
+        and(
+          eq(productVariants.teamId, teamId),
+          eq(productVariants.productId, productId),
+          isNull(productVariants.deletedAt)
+        )
+      );
 
+    // Delete all variant links for each variant (within transaction)
+    for (const variant of variants) {
+      await tx
+        .delete(variantLinks)
+        .where(
+          and(
+            eq(variantLinks.teamId, teamId),
+            eq(variantLinks.variantId, variant.id)
+          )
+        );
+    }
+
+    // Delete all product links (within transaction)
+    await tx
+      .delete(productLinks)
+      .where(
+        and(
+          eq(productLinks.teamId, teamId),
+          eq(productLinks.productId, productId)
+        )
+      );
+
+    // Soft delete variants
     await tx
       .update(productVariants)
       .set({ deletedAt: now, updatedAt: now })
       .where(and(eq(productVariants.teamId, teamId), eq(productVariants.productId, productId)));
+
+    // Soft delete product
+    await tx
+      .update(products)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(eq(products.teamId, teamId), eq(products.id, productId)));
   });
 }
 
@@ -424,6 +463,16 @@ export async function softDeleteVariant(
   if ((count ?? 0) <= 1) {
     return { ok: false as const, reason: 'last_variant' as const };
   }
+
+  // Delete all variant links before soft deleting
+  await db
+    .delete(variantLinks)
+    .where(
+      and(
+        eq(variantLinks.teamId, teamId),
+        eq(variantLinks.variantId, variantId)
+      )
+    );
 
   await db
     .update(productVariants)

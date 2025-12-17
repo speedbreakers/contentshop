@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import useSWR from 'swr';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Store, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -802,6 +804,9 @@ export default function VariantAssetsPage() {
         {fetchMessage ? <p className="text-xs text-muted-foreground mt-2">{fetchMessage}</p> : null}
         {syncMessage ? <p className="text-xs text-muted-foreground mt-1">{syncMessage}</p> : null}
       </div>
+
+      {/* Linked Storefronts */}
+      <LinkedStorefronts variantId={variantId} />
 
       <div className="space-y-6">
         <Card>
@@ -1754,4 +1759,93 @@ export default function VariantAssetsPage() {
   );
 }
 
+// Linked Storefronts Component
+const swrFetcher = (url: string) => fetch(url).then((res) => res.json());
 
+interface VariantLinkData {
+  id: number;
+  variantId: number;
+  accountId: number;
+  provider: string;
+  externalProductId: string;
+  externalVariantId: string;
+  status: string;
+  createdAt: string;
+}
+
+interface AccountData {
+  id: number;
+  displayName: string;
+  provider: string;
+  shopDomain: string | null;
+}
+
+function LinkedStorefronts({ variantId }: { variantId: number }) {
+  const { data: linksData } = useSWR<{ links: VariantLinkData[] }>(
+    `/api/commerce/links/variants?variant_id=${variantId}`,
+    swrFetcher
+  );
+
+  const { data: accountsData } = useSWR<{ accounts: AccountData[] }>(
+    '/api/commerce/accounts',
+    swrFetcher
+  );
+
+  const links = linksData?.links ?? [];
+  const accounts = accountsData?.accounts ?? [];
+
+  // Build account map
+  const accountMap = new Map<number, AccountData>();
+  for (const account of accounts) {
+    accountMap.set(account.id, account);
+  }
+
+  // Only show linked storefronts
+  const linkedStorefronts = links.filter((l) => l.status === 'linked');
+
+  if (linkedStorefronts.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Store className="h-4 w-4" />
+          Linked Storefronts
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          {linkedStorefronts.map((link) => {
+            const account = accountMap.get(link.accountId);
+            if (!account) return null;
+
+            return (
+              <div
+                key={link.id}
+                className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              >
+                <Store className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">{account.displayName}</span>
+                <Badge variant="outline" className="text-xs">
+                  {link.provider}
+                </Badge>
+                {account.shopDomain && (
+                  <a
+                    href={`https://${account.shopDomain}/admin/products`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

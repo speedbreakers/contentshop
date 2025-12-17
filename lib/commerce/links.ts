@@ -145,6 +145,21 @@ export async function deleteProductLink(teamId: number, id: number) {
 }
 
 /**
+ * Delete all product links for a canonical product
+ */
+export async function deleteAllProductLinksForProduct(teamId: number, productId: number) {
+  return await db
+    .delete(productLinks)
+    .where(
+      and(
+        eq(productLinks.teamId, teamId),
+        eq(productLinks.productId, productId)
+      )
+    )
+    .returning();
+}
+
+/**
  * Check if canonical product has any linked stores
  */
 export async function hasLinkedStores(
@@ -331,6 +346,21 @@ export async function deleteVariantLink(teamId: number, id: number) {
 }
 
 /**
+ * Delete all variant links for a canonical variant
+ */
+export async function deleteAllVariantLinksForVariant(teamId: number, variantId: number) {
+  return await db
+    .delete(variantLinks)
+    .where(
+      and(
+        eq(variantLinks.teamId, teamId),
+        eq(variantLinks.variantId, variantId)
+      )
+    )
+    .returning();
+}
+
+/**
  * Get linked external variants for a canonical variant
  * (used to determine publish targets)
  */
@@ -365,5 +395,22 @@ export async function countLinkedVariants(
       )
     );
   return result[0]?.count ?? 0;
+}
+
+/**
+ * Check if external variant is already linked
+ */
+export async function isExternalVariantLinked(
+  accountId: number,
+  externalVariantId: string
+): Promise<boolean> {
+  const row = await db.query.variantLinks.findFirst({
+    where: and(
+      eq(variantLinks.accountId, accountId),
+      eq(variantLinks.externalVariantId, externalVariantId),
+      eq(variantLinks.status, 'linked')
+    ),
+  });
+  return row !== null && row !== undefined;
 }
 
