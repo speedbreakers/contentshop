@@ -6,7 +6,7 @@
  * Used by the link dialog to find canonical variants to link to.
  */
 
-import { and, eq, ilike, sql, or } from 'drizzle-orm';
+import { and, eq, ilike, or, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
 import { products, productVariants } from '@/lib/db/schema';
 import { getTeamForUser } from '@/lib/db/queries';
@@ -18,51 +18,57 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const query = searchParams.get('q') || '';
+  const query = (searchParams.get('q') || '').trim();
   const limit = parseInt(searchParams.get('limit') || '20', 10);
 
-  // Build search condition
-  const searchCondition = query
-    ? or(
-        ilike(products.name, `%${query}%`),
-        sql`EXISTS (
-          SELECT 1 FROM product_variants pv
-          WHERE pv.product_id = ${products.id}
-          AND (pv.name ILIKE ${`%${query}%`} OR pv.sku ILIKE ${`%${query}%`})
-        )`
-      )
-    : undefined;
+  // Avoid returning the entire catalog when the user hasn't typed anything yet.
+  // The link modal expects "type to search" behavior.
+  if (query.length < 2) {
+    return Response.json({ products: [] });
+  }
 
-  // Get products with matching name or variants
+  // Build search condition (product title OR any variant title/SKU)
+  const searchCondition = or(
+    ilike(products.title, `%${query}%`),
+    ilike(productVariants.title, `%${query}%`),
+    ilike(productVariants.sku, `%${query}%`)
+  );
+
+  // Get products with matching title or variants (join to variants for searching)
   const matchingProducts = await db
     .select({
       id: products.id,
-      name: products.name,
+      title: products.title,
       category: products.category,
     })
     .from(products)
+    .leftJoin(
+      productVariants,
+      and(
+        eq(productVariants.teamId, team.id),
+        eq(productVariants.productId, products.id),
+        isNull(productVariants.deletedAt)
+      )
+    )
     .where(
       and(
         eq(products.teamId, team.id),
+        isNull(products.deletedAt),
         searchCondition
       )
     )
+    .groupBy(products.id)
     .limit(Math.min(limit, 50));
 
-  // Get variants for each product
+  // Get variants for each product.
+  // Important: if the query matched the PRODUCT title, we still want to return its variants so the
+  // user can choose what to link. So we do not filter variants by the query here.
   const results = await Promise.all(
     matchingProducts.map(async (product) => {
-      const variantCondition = query
-        ? or(
-            ilike(productVariants.name, `%${query}%`),
-            ilike(productVariants.sku, `%${query}%`)
-          )
-        : undefined;
-
       const variants = await db
         .select({
           id: productVariants.id,
-          name: productVariants.name,
+          title: productVariants.title,
           sku: productVariants.sku,
         })
         .from(productVariants)
@@ -70,23 +76,21 @@ export async function GET(request: Request) {
           and(
             eq(productVariants.teamId, team.id),
             eq(productVariants.productId, product.id),
-            variantCondition
+            isNull(productVariants.deletedAt)
           )
         )
         .limit(20);
 
       return {
-        ...product,
+        id: product.id,
+        title: product.title,
+        category: product.category,
         variants,
       };
     })
   );
 
-  // Filter out products with no variants if we have a search query
-  const filtered = query
-    ? results.filter((p) => p.variants.length > 0)
-    : results;
-
-  return Response.json({ products: filtered });
+  // Filter out products with no variants (since we're linking variants)
+  return Response.json({ products: results.filter((p) => p.variants.length > 0) });
 }
 

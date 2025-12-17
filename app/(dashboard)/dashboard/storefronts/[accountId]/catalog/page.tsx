@@ -97,11 +97,11 @@ interface ExternalVariant {
 
 interface CanonicalProduct {
   id: number;
-  name: string;
+  title: string;
   category: string | null;
   variants: Array<{
     id: number;
-    name: string;
+    title: string;
     sku: string | null;
   }>;
 }
@@ -239,7 +239,9 @@ export default function ExternalCatalogPage({ params }: PageProps) {
 
   // Fetch canonical products for link picker
   const { data: canonicalData } = useSWR<{ products: CanonicalProduct[] }>(
-    linkDialogOpen ? `/api/products/search?q=${encodeURIComponent(canonicalSearch)}` : null,
+    linkDialogOpen && canonicalSearch.trim().length >= 2
+      ? `/api/products/search?q=${encodeURIComponent(canonicalSearch.trim())}`
+      : null,
     fetcher
   );
 
@@ -321,6 +323,46 @@ export default function ExternalCatalogPage({ params }: PageProps) {
       setNotification({
         type: 'error',
         message: err instanceof Error ? err.message : 'Failed to create link',
+      });
+    } finally {
+      setLinkLoading(false);
+    }
+  }
+
+  // Create canonical product/variant and link (for when canonical doesn't exist yet)
+  async function handleCreateCanonicalAndLink() {
+    if (!linkingVariant) return;
+
+    setLinkLoading(true);
+    try {
+      const res = await fetch('/api/commerce/links/variants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          create_canonical_product: true,
+          account_id: accountIdNum,
+          external_product_id: linkingVariant.externalProductId,
+          external_variant_id: linkingVariant.externalVariantId,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create canonical product and link');
+      }
+
+      setNotification({
+        type: 'success',
+        message: 'Created canonical product and linked variant successfully',
+      });
+      setLinkDialogOpen(false);
+      mutateLinks();
+      mutateBulkImport();
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        message:
+          err instanceof Error ? err.message : 'Failed to create canonical product and link',
       });
     } finally {
       setLinkLoading(false);
@@ -536,6 +578,19 @@ export default function ExternalCatalogPage({ params }: PageProps) {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground space-y-2">
+              <div>
+                <span className="font-medium text-foreground">Link</span>: Choose an existing
+                canonical variant from your catalog (recommended when you already have the product
+                in ContentShop).
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Create &amp; Link</span>: Create a
+                new canonical product + variant from this external item and link it (use when you
+                don&apos;t have it in ContentShop yet).
+              </div>
+            </div>
+
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -549,12 +604,14 @@ export default function ExternalCatalogPage({ params }: PageProps) {
             <div className="max-h-64 overflow-y-auto border rounded-lg divide-y">
               {canonicalProducts.length === 0 ? (
                 <div className="p-4 text-center text-sm text-muted-foreground">
-                  {canonicalSearch ? 'No products found' : 'Start typing to search...'}
+                  {canonicalSearch.trim().length < 2
+                    ? 'Type at least 2 characters to search your catalog.'
+                    : 'No products found.'}
                 </div>
               ) : (
                 canonicalProducts.map((product) => (
                   <div key={product.id} className="p-2">
-                    <div className="font-medium text-sm mb-1">{product.name}</div>
+                    <div className="font-medium text-sm mb-1">{product.title}</div>
                     <div className="space-y-1">
                       {product.variants.map((variant) => (
                         <label
@@ -571,7 +628,7 @@ export default function ExternalCatalogPage({ params }: PageProps) {
                             onChange={() => setSelectedCanonicalVariant(variant.id)}
                             className="h-4 w-4"
                           />
-                          <span className="text-sm">{variant.name}</span>
+                          <span className="text-sm">{variant.title}</span>
                           {variant.sku && (
                             <Badge variant="outline" className="text-xs">
                               {variant.sku}
@@ -589,6 +646,15 @@ export default function ExternalCatalogPage({ params }: PageProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setLinkDialogOpen(false)}>
               Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleCreateCanonicalAndLink}
+              disabled={!linkingVariant || linkLoading}
+            >
+              {linkLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Download className="mr-2 h-4 w-4" />
+              Create & Link
             </Button>
             <Button
               onClick={handleCreateLink}
