@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import useSWR from 'swr';
 import { ImageIcon, FileTextIcon, TrendingUp, Calendar, Loader2, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { formatPrice } from '@/lib/payments/plans';
@@ -72,42 +72,38 @@ function ProgressRing({ percent, size = 120, strokeWidth = 12, isOverage }: {
 }
 
 export default function UsagePage() {
-  const [balance, setBalance] = useState<CreditBalance | null>(null);
-  const [records, setRecords] = useState<UsageRecord[]>([]);
-  const [stats, setStats] = useState<UsageStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    data: balance,
+    isLoading: balanceLoading,
+    error: balanceError,
+  } = useSWR<CreditBalance>('/api/team/credits');
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const [balanceRes, usageRes] = await Promise.all([
-          fetch('/api/team/credits'),
-          fetch('/api/team/usage?limit=20'),
-        ]);
+  const {
+    data: usage,
+    isLoading: usageLoading,
+    error: usageError,
+  } = useSWR<{ records: UsageRecord[]; stats: UsageStats }>('/api/team/usage?limit=20');
 
-        if (balanceRes.ok) {
-          setBalance(await balanceRes.json());
-        }
-
-        if (usageRes.ok) {
-          const data = await usageRes.json();
-          setRecords(data.records);
-          setStats(data.stats);
-        }
-      } catch (err) {
-        console.error('Failed to fetch usage data:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
-  }, []);
+  const loading = balanceLoading || usageLoading;
+  const records = usage?.records ?? [];
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      </div>
+    );
+  }
+
+  if (balanceError || usageError) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-12 text-center">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+          Failed to load usage
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          Please refresh the page. If the issue persists, contact support.
+        </p>
       </div>
     );
   }

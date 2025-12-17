@@ -11,8 +11,6 @@ import useSWR from 'swr';
 import { Suspense } from 'react';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
 type ActionState = {
   name?: string;
   error?: string;
@@ -58,7 +56,7 @@ function AccountForm({
 }
 
 function AccountFormWithData({ state }: { state: ActionState }) {
-  const { data: user } = useSWR<User>('/api/user', fetcher);
+  const { data: user } = useSWR<User>('/api/user');
   return (
     <AccountForm
       state={state}

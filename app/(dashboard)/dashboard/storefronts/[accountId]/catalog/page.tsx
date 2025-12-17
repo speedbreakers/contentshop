@@ -64,8 +64,6 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
 interface CommerceAccount {
   id: number;
   provider: string;
@@ -216,8 +214,7 @@ export default function ExternalCatalogPage({ params }: PageProps) {
 
   // Fetch account details
   const { data: accountData, isLoading: accountLoading } = useSWR<{ account: CommerceAccount }>(
-    `/api/commerce/accounts/${accountId}`,
-    fetcher
+    `/api/commerce/accounts/${accountId}`
   );
 
   // Fetch products
@@ -226,16 +223,14 @@ export default function ExternalCatalogPage({ params }: PageProps) {
     products: ExternalProduct[];
     pagination: { total: number; hasMore: boolean };
   }>(
-    `/api/commerce/accounts/${accountId}/products?limit=50${searchParam}`,
-    fetcher
+    `/api/commerce/accounts/${accountId}/products?limit=50${searchParam}`
   );
 
   // Fetch unlinked counts for bulk import
   const { data: bulkImportData, mutate: mutateBulkImport } = useSWR<{
     unlinked: { products: number; variants: number };
   }>(
-    `/api/commerce/accounts/${accountId}/bulk-import`,
-    fetcher
+    `/api/commerce/accounts/${accountId}/bulk-import`
   );
 
   // Fetch canonical products for link picker
@@ -243,13 +238,11 @@ export default function ExternalCatalogPage({ params }: PageProps) {
     linkDialogOpen && canonicalSearch.trim().length >= 2
       ? `/api/products/search?q=${encodeURIComponent(canonicalSearch.trim())}`
       : null,
-    fetcher
   );
 
   // Fetch variant links for account
   const { data: linksData, mutate: mutateLinks } = useSWR<{ links: VariantLink[] }>(
-    `/api/commerce/links/variants?account_id=${accountId}`,
-    fetcher
+    `/api/commerce/links/variants?account_id=${accountId}`
   );
 
   const account = accountData?.account;

@@ -2,14 +2,16 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import useSWR from 'swr';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
+import { fetchJson } from '@/lib/swr/fetcher';
 import { VariantsTable } from './_components/variants-table';
 import { CreateVariantDialog } from './_components/create-variant-dialog';
 import { ProductDescription } from './_components/product-description';
@@ -54,9 +56,8 @@ type ProductDetail = FakeProduct & { imageUrl?: string | null };
 export default function ProductDetailPage() {
   const params = useParams<{ productId: string }>();
   const productId = Number(params.productId);
+  const productKey = Number.isFinite(productId) ? `/api/products/${productId}` : null;
 
-  const [product, setProduct] = useState<ProductDetail | null>(null);
-  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [createVariantOpen, setCreateVariantOpen] = useState(false);
@@ -70,40 +71,33 @@ export default function ProductDetailPage() {
   const [editUploading, setEditUploading] = useState(false);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
-    fetch(`/api/products/${productId}`)
-      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
-      .then(({ ok, status, j }) => {
-        if (cancelled) return;
-        if (!ok) {
-          setLoadError(j?.error ? String(j.error) : `Failed to load (HTTP ${status})`);
-          setProduct(null);
-          return;
-        }
-        const p = j?.product;
-        if (!p) {
-          setLoadError('Product not found');
-          setProduct(null);
-          return;
-        }
-        const mapped: ProductDetail = {
-          id: Number(p.id),
-          title: String(p.title),
-          status: (p.status as any) ?? 'draft',
-          category: (p.category as any) ?? 'apparel',
-          vendor: p.vendor ?? null,
-          productType: p.productType ?? null,
-          handle: p.handle ?? null,
-          tags: p.tags ?? null,
-          shopifyProductGid: p.shopifyProductGid ?? null,
-          imageUrl: p.imageUrl ?? null,
-          defaultVariantId: Number(p.defaultVariantId ?? (p.variants?.[0]?.id ?? 0)),
-          options: Array.isArray(p.options) ? p.options : [],
-          variants: Array.isArray(p.variants)
-            ? p.variants.map((v: any) => ({
+  const {
+    data: product,
+    error: productError,
+    isLoading,
+    mutate: mutateProduct,
+  } = useSWR<ProductDetail>(
+    productKey,
+    async (url) => {
+      const j = await fetchJson<{ product: any }>(url);
+      const p = j?.product;
+      if (!p) throw new Error('Product not found');
+
+      const mapped: ProductDetail = {
+        id: Number(p.id),
+        title: String(p.title),
+        status: (p.status as any) ?? 'draft',
+        category: (p.category as any) ?? 'apparel',
+        vendor: p.vendor ?? null,
+        productType: p.productType ?? null,
+        handle: p.handle ?? null,
+        tags: p.tags ?? null,
+        shopifyProductGid: p.shopifyProductGid ?? null,
+        imageUrl: p.imageUrl ?? null,
+        defaultVariantId: Number(p.defaultVariantId ?? (p.variants?.[0]?.id ?? 0)),
+        options: Array.isArray(p.options) ? p.options : [],
+        variants: Array.isArray(p.variants)
+          ? p.variants.map((v: any) => ({
               id: Number(v.id),
               productId: Number(v.productId ?? p.id),
               title: String(v.title),
@@ -112,30 +106,32 @@ export default function ProductDetailPage() {
               optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
               updatedAt: String(v.updatedAt ?? new Date().toISOString()),
             }))
-            : [],
-          updatedAt: String(p.updatedAt ?? new Date().toISOString()),
-        };
-        setProduct(mapped);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setLoadError(e?.message ? String(e.message) : 'Failed to load product');
-        setProduct(null);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [productId]);
+          : [],
+        updatedAt: String(p.updatedAt ?? new Date().toISOString()),
+      };
+
+      return mapped;
+    },
+    {
+      // Prevent UI flashes when navigating around and coming back.
+      keepPreviousData: true,
+    }
+  );
+
+  const headerMessage = useMemo(() => {
+    if (!Number.isFinite(productId)) return 'Invalid product.';
+    if (isLoading) return 'Loading…';
+    if (loadError) return loadError;
+    if (productError instanceof Error) return productError.message;
+    if (productError) return 'Failed to load product.';
+    return 'Product not found.';
+  }, [productError, isLoading, loadError, productId]);
 
   if (!product) {
     return (
       <section className="flex-1 p-4 lg:p-8">
         <div className="text-muted-foreground">
-          {loading ? 'Loading…' : loadError ?? 'Product not found.'}
+          {headerMessage}
         </div>
         <Button asChild className="mt-4">
           <Link href="/dashboard/products">Back to products</Link>
@@ -145,14 +141,14 @@ export default function ProductDetailPage() {
   }
 
   function addVariant(variant: FakeVariant) {
-    setProduct((p) => {
-      if (!p) return p;
+    mutateProduct((p) => {
+      if (!p) return p as any;
       return {
         ...p,
         variants: [variant, ...p.variants],
         updatedAt: new Date().toISOString(),
       };
-    });
+    }, { revalidate: false });
   }
 
   function openEdit() {
@@ -210,17 +206,19 @@ export default function ProductDetailPage() {
 
     const updated = data?.product;
     if (updated) {
-      setProduct((prev) =>
-        prev
-          ? {
-            ...prev,
-            title: updated.title ?? prev.title,
-            category: updated.category ?? prev.category,
-            tags: updated.tags ?? prev.tags,
-            imageUrl: updated.imageUrl ?? prev.imageUrl,
-            updatedAt: updated.updatedAt ?? prev.updatedAt,
-          }
-          : prev
+      mutateProduct(
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                title: updated.title ?? prev.title,
+                category: updated.category ?? prev.category,
+                tags: updated.tags ?? prev.tags,
+                imageUrl: updated.imageUrl ?? prev.imageUrl,
+                updatedAt: updated.updatedAt ?? prev.updatedAt,
+              }
+            : prev,
+        { revalidate: false }
       );
     }
 
@@ -287,7 +285,10 @@ export default function ProductDetailPage() {
             </TabsList>
 
             <TabsContent value="variants" className="mt-4">
-              <VariantsTable product={product} onChange={setProduct} />
+              <VariantsTable
+                product={product}
+                onChange={(next) => mutateProduct(next as any, { revalidate: false })}
+              />
             </TabsContent>
 
             <TabsContent value="description" className="mt-4">

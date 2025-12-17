@@ -24,8 +24,6 @@ type CreditBalanceData = {
 
 const CREDITS_KEY = '/api/team/credits';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
 /**
  * Call this function to refresh the credit balance after a generation
  */
@@ -50,7 +48,7 @@ export function CreditBalance() {
   const { state, isMobile } = useSidebar();
   const isCollapsed = state === 'collapsed' && !isMobile;
 
-  const { data, isLoading } = useSWR<CreditBalanceData>(CREDITS_KEY, fetcher, {
+  const { data, isLoading } = useSWR<CreditBalanceData>(CREDITS_KEY, {
     revalidateOnFocus: true,
     refreshInterval: 0, // Don't auto-refresh, we'll trigger manually
   });

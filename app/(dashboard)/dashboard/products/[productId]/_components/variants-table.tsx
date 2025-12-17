@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import useSWR from 'swr';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ import {
 import { LinkShopifyDialog } from './link-shopify-dialog';
 import { EllipsisVerticalIcon, ImageIcon } from 'lucide-react';
 import { EditVariantDialog } from './edit-variant-dialog';
+import { fetchJson } from '@/lib/swr/fetcher';
 
 function optionSummary(product: FakeProduct, v: FakeVariant) {
   if (!v.optionValues.length) return '—';
@@ -48,83 +50,63 @@ export function VariantsTable(props: {
   onChange: (next: FakeProduct) => void;
 }) {
   const router = useRouter();
-  const [variants, setVariants] = useState<FakeVariant[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editVariantId, setEditVariantId] = useState<number | null>(null);
 
-  // Track variant count from parent to trigger reload when new variants are added
-  const parentVariantCount = props.product.variants?.length ?? 0;
+  const variantsKey = `/api/products/${props.product.id}/variants`;
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetch(`/api/products/${props.product.id}/variants`)
-      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
-      .then(({ ok, status, j }) => {
-        if (cancelled) return;
-        if (!ok) {
-          setError(j?.error ? String(j.error) : `Failed to load (HTTP ${status})`);
-          setVariants([]);
-          return;
-        }
-        const items = Array.isArray(j?.items) ? j.items : [];
-        setVariants(
-          items.map((v: any) => ({
-            id: Number(v.id),
-            productId: Number(v.productId ?? props.product.id),
-            title: String(v.title),
-            sku: v.sku ?? null,
-            imageUrl: v.imageUrl ?? null,
-            shopifyVariantGid: v.shopifyVariantGid ?? null,
-            optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
-            updatedAt: String(v.updatedAt ?? new Date().toISOString()),
-          }))
-        );
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(e?.message ? String(e.message) : 'Failed to load variants');
-        setVariants([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [props.product.id, parentVariantCount]);
+  const fallbackItems = useMemo(() => {
+    const list = Array.isArray(props.product.variants) ? props.product.variants : [];
+    return list.map((v: any) => ({
+      id: Number(v.id),
+      productId: Number(v.productId ?? props.product.id),
+      title: String(v.title ?? ''),
+      sku: v.sku ?? null,
+      imageUrl: v.imageUrl ?? null,
+      shopifyVariantGid: v.shopifyVariantGid ?? null,
+      optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
+      updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+    }));
+  }, [props.product.id, props.product.variants]);
+
+  const {
+    data: variantsData,
+    error: swrError,
+    isLoading,
+    mutate: mutateVariants,
+  } = useSWR<{ items: any[] }>(
+    variantsKey,
+    async (url) => fetchJson<{ items: any[] }>(url),
+    {
+      fallbackData: { items: fallbackItems },
+      keepPreviousData: true,
+    }
+  );
+
+  const variants: FakeVariant[] = useMemo(() => {
+    const items = Array.isArray(variantsData?.items) ? variantsData!.items : [];
+    return items.map((v: any) => ({
+      id: Number(v.id),
+      productId: Number(v.productId ?? props.product.id),
+      title: String(v.title),
+      sku: v.sku ?? null,
+      imageUrl: v.imageUrl ?? null,
+      shopifyVariantGid: v.shopifyVariantGid ?? null,
+      optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
+      updatedAt: String(v.updatedAt ?? new Date().toISOString()),
+    }));
+  }, [props.product.id, variantsData]);
+
+  const errorMessage =
+    error ??
+    (swrError instanceof Error ? swrError.message : swrError ? 'Failed to load variants' : null);
 
   const [linkVariantId, setLinkVariantId] = useState<number | null>(null);
   const [deleteVariantId, setDeleteVariantId] = useState<number | null>(null);
 
   async function reloadVariants() {
-    setLoading(true);
     setError(null);
-    const res = await fetch(`/api/products/${props.product.id}/variants`);
-    const j = await res.json().catch(() => null);
-    if (!res.ok) {
-      setError(j?.error ? String(j.error) : `Failed to load (HTTP ${res.status})`);
-      setVariants([]);
-      setLoading(false);
-      return;
-    }
-    const items = Array.isArray(j?.items) ? j.items : [];
-    setVariants(
-      items.map((v: any) => ({
-        id: Number(v.id),
-        productId: Number(v.productId ?? props.product.id),
-        title: String(v.title),
-        sku: v.sku ?? null,
-        imageUrl: v.imageUrl ?? null,
-        shopifyVariantGid: v.shopifyVariantGid ?? null,
-        optionValues: Array.isArray(v.optionValues) ? v.optionValues : [],
-        updatedAt: String(v.updatedAt ?? new Date().toISOString()),
-      }))
-    );
-    setLoading(false);
+    await mutateVariants();
   }
 
   async function setDefault(variantId: number) {
@@ -159,7 +141,7 @@ export function VariantsTable(props: {
           setError(j?.error ? String(j.error) : `Save failed (HTTP ${status})`);
           return;
         }
-        reloadVariants();
+        mutateVariants();
       })
       .catch((e) => setError(e?.message ? String(e.message) : 'Save failed'))
       .finally(() => setLinkVariantId(null));
@@ -174,7 +156,7 @@ export function VariantsTable(props: {
           setError(j?.error ? String(j.error) : `Delete failed (HTTP ${status})`);
           return;
         }
-        reloadVariants();
+        mutateVariants();
       })
       .catch((e) => setError(e?.message ? String(e.message) : 'Delete failed'))
       .finally(() => setDeleteVariantId(null));
@@ -200,7 +182,7 @@ export function VariantsTable(props: {
           <div className="text-sm text-muted-foreground">
             {variants.length} variants
           </div>
-          {error ? <div className="text-sm text-red-600">{error}</div> : null}
+          {errorMessage ? <div className="text-sm text-red-600">{errorMessage}</div> : null}
         </CardHeader>
         <CardContent>
           <Table>
@@ -213,7 +195,7 @@ export function VariantsTable(props: {
             </TableHeader>
 
             <TableBody>
-              {loading ? (
+              {variants.length === 0 && isLoading ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-muted-foreground">
                     Loading…
@@ -342,7 +324,7 @@ export function VariantsTable(props: {
         }
         onSaved={() => {
           // Reload to reflect saved imageUrl/title/sku in the table
-          reloadVariants();
+          mutateVariants();
           setEditVariantId(null);
         }}
       />

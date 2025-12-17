@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import useSWR from 'swr';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -85,10 +86,20 @@ type ApiProduct = {
 
 export default function ProductsPage() {
   const router = useRouter();
-  const [items, setItems] = useState<ApiProduct[]>([]);
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const {
+    data,
+    error: productsError,
+    isLoading: loading,
+    mutate: mutateProducts,
+  } = useSWR<{ items: ApiProduct[] }>('/api/products');
+
+  const items = Array.isArray(data?.items) ? data!.items : [];
+  const errorMessage =
+    loadError ??
+    (productsError instanceof Error ? productsError.message : productsError ? 'Failed to load products' : null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -107,35 +118,6 @@ export default function ProductsPage() {
   const [editImageUrl, setEditImageUrl] = useState('');
   const [editUploading, setEditUploading] = useState(false);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
-    fetch('/api/products')
-      .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, j })))
-      .then(({ ok, status, j }) => {
-        if (cancelled) return;
-        if (!ok) {
-          setLoadError(j?.error ? String(j.error) : `Failed to load (HTTP ${status})`);
-          setItems([]);
-          return;
-        }
-        setItems(Array.isArray(j?.items) ? j.items : []);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setLoadError(e?.message ? String(e.message) : 'Failed to load products');
-        setItems([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -218,12 +200,19 @@ export default function ProductsPage() {
       : null;
 
     if (created) {
-      setItems((prev) => [created, ...prev]);
+      mutateProducts(
+        (current) => ({
+          items: [created, ...(current?.items ?? [])],
+        }),
+        { revalidate: false }
+      );
       setCreateOpen(false);
       setNewTitle('');
       setNewCategory('apparel');
       setNewTags('');
       setNewImageUrl('');
+    } else {
+      mutateProducts();
     }
   }
 
@@ -261,7 +250,14 @@ export default function ProductsPage() {
 
     const updated = data?.product as Partial<ApiProduct> | undefined;
     if (updated?.id) {
-      setItems((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+      mutateProducts(
+        (current) => ({
+          items: (current?.items ?? []).map((p) =>
+            p.id === updated.id ? { ...p, ...updated } : p
+          ),
+        }),
+        { revalidate: false }
+      );
     }
 
     setEditOpen(false);
@@ -275,7 +271,12 @@ export default function ProductsPage() {
       setLoadError(data?.error ? String(data.error) : `Delete failed (HTTP ${res.status})`);
       return;
     }
-    setItems((prev) => prev.filter((p) => p.id !== productId));
+    mutateProducts(
+      (current) => ({
+        items: (current?.items ?? []).filter((p) => p.id !== productId),
+      }),
+      { revalidate: false }
+    );
   }
 
   return (
@@ -438,8 +439,8 @@ export default function ProductsPage() {
               placeholder="Search by title or handle…"
             />
           </div>
-          {loadError ? (
-            <div className="text-sm text-red-600 mb-3 shrink-0">{loadError}</div>
+          {errorMessage ? (
+            <div className="text-sm text-red-600 mb-3 shrink-0">{errorMessage}</div>
           ) : null}
 
           <div className="flex-1 min-h-0 overflow-auto pr-1">

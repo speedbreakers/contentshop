@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
+import { fetchJson } from '@/lib/swr/fetcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -93,16 +94,178 @@ export default function VariantAssetsPage() {
   const productId = Number(params.productId);
   const variantId = Number(params.variantId);
 
-  const [product, setProduct] = useState<FakeProduct | null>(null);
-  const [variant, setVariant] = useState<FakeVariant | null>(null);
-  const [loading, setLoading] = useState(true);
   const [editVariantOpen, setEditVariantOpen] = useState(false);
+
+  type InitData = {
+    product: FakeProduct;
+    variant: FakeVariant;
+    sets: FakeSet[];
+    itemsBySetId: Record<number, FakeSetItem[]>;
+    activeFolderId: number | null;
+  };
+
+  const initKey =
+    Number.isFinite(productId) && Number.isFinite(variantId)
+      ? (['variantPageInit', productId, variantId] as const)
+      : null;
+
+  const {
+    data: init,
+    isLoading: initLoading,
+    error: initError,
+    mutate: mutateInit,
+  } = useSWR<InitData>(
+    initKey,
+    async ([, pid, vid]) => {
+      const productJson = await fetchJson<{ product: any }>(`/api/products/${pid}`);
+      const p = productJson?.product;
+      if (!p) throw new Error('Product not found');
+
+      const mappedProduct: FakeProduct = {
+        id: Number(p.id),
+        title: String(p.title),
+        status: (p.status as any) ?? 'draft',
+        category: (p.category as any) ?? 'apparel',
+        vendor: p.vendor ?? null,
+        productType: p.productType ?? null,
+        handle: p.handle ?? null,
+        tags: p.tags ?? null,
+        shopifyProductGid: p.shopifyProductGid ?? null,
+        defaultVariantId: Number(p.defaultVariantId ?? 0),
+        options: Array.isArray(p.options) ? p.options : [],
+        variants: Array.isArray(p.variants) ? p.variants : [],
+        updatedAt: String(p.updatedAt ?? new Date().toISOString()),
+      };
+
+      const mappedVariant: FakeVariant | null =
+        (mappedProduct.variants as any[]).find((v) => Number(v.id) === vid) ?? null;
+      if (!mappedVariant) throw new Error('Variant not found');
+
+      const setsJson = await fetchJson<{ items: FakeSet[] }>(
+        `/api/products/${pid}/variants/${vid}/sets`
+      );
+      const setsList: FakeSet[] = Array.isArray(setsJson?.items) ? setsJson.items : [];
+
+      const itemResults = await Promise.all(
+        setsList.map(async (s) => {
+          try {
+            const j = await fetchJson<{ items: any[] }>(`/api/sets/${s.id}/items`);
+            const items = Array.isArray(j?.items) ? j.items : [];
+            const mappedItems: FakeSetItem[] = items
+              .filter((it: any) => it.itemType === 'variant_image' && it.data)
+              .map((it: any) => {
+                const img = it.data;
+                const createdAt = String(img.createdAt ?? it.createdAt ?? new Date().toISOString());
+                const outputLabel =
+                  img?.input && typeof img.input === 'object' && (img.input as any).output_label
+                    ? String((img.input as any).output_label)
+                    : null;
+                return {
+                  id: Number(img.id),
+                  setId: Number(it.setId ?? s.id),
+                  createdAt,
+                  label: outputLabel ?? (img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`),
+                  status: (img.status as any) ?? 'ready',
+                  url: String(img.url),
+                  prompt: String(img.prompt ?? ''),
+                  schemaKey: String(img.schemaKey ?? ''),
+                  input: img.input ?? null,
+                  isSelected: false,
+                } as FakeSetItem;
+              });
+            return [s.id, mappedItems] as const;
+          } catch {
+            return [s.id, [] as FakeSetItem[]] as const;
+          }
+        })
+      );
+
+      const itemsBySetId: Record<number, FakeSetItem[]> = {};
+      for (const [setId, items] of itemResults) {
+        itemsBySetId[setId] = items;
+      }
+
+      const activeFolderId =
+        (setsList.find((s) => (s as any).isDefault)?.id ?? setsList[0]?.id ?? null) as
+          | number
+          | null;
+
+      return {
+        product: mappedProduct,
+        variant: mappedVariant,
+        sets: setsList,
+        itemsBySetId,
+        activeFolderId,
+      };
+    },
+    { keepPreviousData: true }
+  );
+
+  const product = init?.product ?? null;
+  const variant = init?.variant ?? null;
+  const sets = init?.sets ?? [];
+  const itemsBySetId = init?.itemsBySetId ?? {};
+  const activeFolderId = init?.activeFolderId ?? null;
 
   const productCategory = product?.category ?? 'apparel';
 
-  const [sets, setSets] = useState<FakeSet[]>([]);
-  const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
-  const [itemsBySetId, setItemsBySetId] = useState<Record<number, FakeSetItem[]>>({});
+  const setProduct = (
+    next: FakeProduct | null | ((prev: FakeProduct | null) => FakeProduct | null)
+  ) =>
+    mutateInit(
+      (prev) => {
+        if (!prev) return prev as any;
+        const value = typeof next === 'function' ? (next as any)(prev.product) : next;
+        return value ? { ...prev, product: value } : prev;
+      },
+      { revalidate: false }
+    );
+
+  const setVariant = (
+    next: FakeVariant | null | ((prev: FakeVariant | null) => FakeVariant | null)
+  ) =>
+    mutateInit(
+      (prev) => {
+        if (!prev) return prev as any;
+        const value = typeof next === 'function' ? (next as any)(prev.variant) : next;
+        return value ? { ...prev, variant: value } : prev;
+      },
+      { revalidate: false }
+    );
+
+  const setSets = (next: FakeSet[] | ((prev: FakeSet[]) => FakeSet[])) =>
+    mutateInit(
+      (prev) => {
+        if (!prev) return prev as any;
+        const value = typeof next === 'function' ? (next as any)(prev.sets) : next;
+        return { ...prev, sets: value };
+      },
+      { revalidate: false }
+    );
+
+  const setItemsBySetId = (
+    next:
+      | Record<number, FakeSetItem[]>
+      | ((prev: Record<number, FakeSetItem[]>) => Record<number, FakeSetItem[]>)
+  ) =>
+    mutateInit(
+      (prev) => {
+        if (!prev) return prev as any;
+        const value = typeof next === 'function' ? (next as any)(prev.itemsBySetId) : next;
+        return { ...prev, itemsBySetId: value };
+      },
+      { revalidate: false }
+    );
+
+  const setActiveFolderId = (next: number | null | ((prev: number | null) => number | null)) =>
+    mutateInit(
+      (prev) => {
+        if (!prev) return prev as any;
+        const value = typeof next === 'function' ? (next as any)(prev.activeFolderId) : next;
+        return { ...prev, activeFolderId: value };
+      },
+      { revalidate: false }
+    );
 
   const [lightbox, setLightbox] = useState<{ kind: 'setItem'; id: number; setId?: number } | null>(null);
   const [editInstructions, setEditInstructions] = useState('');
@@ -136,124 +299,24 @@ export default function VariantAssetsPage() {
   const [genValidationError, setGenValidationError] = useState<string | null>(null);
   const [genSubmitError, setGenSubmitError] = useState<string | null>(null);
 
-  const [moodboards, setMoodboards] = useState<Array<{ id: number; name: string }>>([]);
+  const { data: moodboardsData } = useSWR<{ items: any[] }>(
+    generateOpen ? '/api/moodboards' : null
+  );
+  const moodboards = useMemo(() => {
+    const list = Array.isArray(moodboardsData?.items) ? moodboardsData!.items : [];
+    return list
+      .map((m: any) => ({ id: Number(m.id), name: String(m.name) }))
+      .filter((m: any) => Number.isFinite(m.id));
+  }, [moodboardsData]);
 
   // Product images input (array of file URLs)
   const [genProductImages, setGenProductImages] = useState<string[]>(['', '', '', '', '', '', '', '']);
 
-  // Load moodboards when the Generate modal opens.
-  // Note: `Dialog`'s `onOpenChange` is only fired for internal open/close events.
-  // If we open the modal by setting `generateOpen` state directly, `onOpenChange` won't run.
   useEffect(() => {
-    if (!generateOpen) return;
-    fetch('/api/moodboards', { credentials: 'include', cache: 'no-store' })
-      .then(async (r) => {
-        const j = await r.json().catch(() => null);
-        if (!r.ok) throw new Error(j?.error ?? `Failed to load moodboards (HTTP ${r.status})`);
-        return j;
-      })
-      .then((j) => {
-        const list = Array.isArray(j?.items) ? j.items : [];
-        setMoodboards(
-          list
-            .map((m: any) => ({ id: Number(m.id), name: String(m.name) }))
-            .filter((m: any) => Number.isFinite(m.id))
-        );
-      })
-      .catch(() => setMoodboards([]));
-  }, [generateOpen]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const productRes = await fetch(`/api/products/${productId}`);
-        const productJson = await productRes.json().catch(() => null);
-        if (!productRes.ok) throw new Error(productJson?.error ?? `Failed to load product (HTTP ${productRes.status})`);
-        const p = productJson?.product;
-        if (!p) throw new Error('Product not found');
-
-        const mappedProduct: FakeProduct = {
-          id: Number(p.id),
-          title: String(p.title),
-          status: (p.status as any) ?? 'draft',
-          category: (p.category as any) ?? 'apparel',
-          vendor: p.vendor ?? null,
-          productType: p.productType ?? null,
-          handle: p.handle ?? null,
-          tags: p.tags ?? null,
-          shopifyProductGid: p.shopifyProductGid ?? null,
-          defaultVariantId: Number(p.defaultVariantId ?? 0),
-          options: Array.isArray(p.options) ? p.options : [],
-          variants: Array.isArray(p.variants) ? p.variants : [],
-          updatedAt: String(p.updatedAt ?? new Date().toISOString()),
-        };
-
-        const mappedVariant: FakeVariant | null =
-          (mappedProduct.variants as any[]).find((v) => Number(v.id) === variantId) ?? null;
-        if (!mappedVariant) throw new Error('Variant not found');
-
-        const setsRes = await fetch(`/api/products/${productId}/variants/${variantId}/sets`);
-        const setsJson = await setsRes.json().catch(() => null);
-        if (!setsRes.ok) throw new Error(setsJson?.error ?? `Failed to load folders (HTTP ${setsRes.status})`);
-        const setsList: FakeSet[] = Array.isArray(setsJson?.items) ? setsJson.items : [];
-
-        const map: Record<number, FakeSetItem[]> = {};
-        await Promise.all(
-          setsList.map(async (s) => {
-            const res = await fetch(`/api/sets/${s.id}/items`);
-            const j = await res.json().catch(() => null);
-            if (!res.ok) {
-              map[s.id] = [];
-              return;
-            }
-            const items = Array.isArray(j?.items) ? j.items : [];
-            map[s.id] = items
-              .filter((it: any) => it.itemType === 'variant_image' && it.data)
-              .map((it: any) => {
-                const img = it.data;
-                const createdAt = String(img.createdAt ?? it.createdAt ?? new Date().toISOString());
-                const outputLabel =
-                  img?.input && typeof img.input === 'object' && (img.input as any).output_label
-                    ? String((img.input as any).output_label)
-                    : null;
-                return {
-                  id: Number(img.id),
-                  setId: Number(it.setId ?? s.id),
-                  createdAt,
-                  label: outputLabel ?? (img.generationId ? `Gen ${img.generationId}` : `Image ${img.id}`),
-                  status: (img.status as any) ?? 'ready',
-                  url: String(img.url),
-                  prompt: String(img.prompt ?? ''),
-                  schemaKey: String(img.schemaKey ?? ''),
-                  input: img.input ?? null,
-                  isSelected: false,
-                } as FakeSetItem;
-              });
-          })
-        );
-
-        if (cancelled) return;
-        setProduct(mappedProduct);
-        setVariant(mappedVariant);
-        setSets(setsList);
-        setItemsBySetId(map);
-        const defaultId = setsList.find((s) => (s as any).isDefault)?.id ?? setsList[0]?.id ?? null;
-        setActiveFolderId(defaultId);
-      } catch (e: any) {
-        if (cancelled) return;
-        setFetchMessage(e?.message ? String(e.message) : 'Failed to load');
-      } finally {
-        if (cancelled) return;
-        setLoading(false);
-      }
+    if (initError) {
+      setFetchMessage(initError instanceof Error ? initError.message : 'Failed to load');
     }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [productId, variantId]);
+  }, [initError]);
 
   const lightboxSetItem =
     lightbox?.kind === 'setItem'
@@ -754,7 +817,7 @@ export default function VariantAssetsPage() {
     return (
       <section className="flex-1 p-4 lg:p-8">
         <div className="text-muted-foreground">
-          {loading ? 'Loading…' : 'Variant not found.'}
+          {initLoading ? 'Loading…' : (initError instanceof Error ? initError.message : 'Variant not found.')}
         </div>
         <Button className="mt-4" variant="outline" onClick={() => router.push(`/dashboard/products/${productId}`)}>
           Back
@@ -1728,8 +1791,6 @@ export default function VariantAssetsPage() {
 }
 
 // Linked Storefronts Component
-const swrFetcher = (url: string) => fetch(url).then((res) => res.json());
-
 interface VariantLinkData {
   id: number;
   variantId: number;
@@ -1750,13 +1811,11 @@ interface AccountData {
 
 function LinkedStorefronts({ variantId }: { variantId: number }) {
   const { data: linksData } = useSWR<{ links: VariantLinkData[] }>(
-    `/api/commerce/links/variants?variant_id=${variantId}`,
-    swrFetcher
+    `/api/commerce/links/variants?variant_id=${variantId}`
   );
 
   const { data: accountsData } = useSWR<{ accounts: AccountData[] }>(
-    '/api/commerce/accounts',
-    swrFetcher
+    '/api/commerce/accounts'
   );
 
   const links = linksData?.links ?? [];

@@ -57,8 +57,6 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
 interface CommerceAccount {
   id: number;
   provider: string;
@@ -148,8 +146,7 @@ export default function StorefrontsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data, error, isLoading } = useSWR<{ accounts: CommerceAccount[] }>(
-    '/api/commerce/accounts',
-    fetcher
+    '/api/commerce/accounts'
   );
 
   // State for dialogs

@@ -30,7 +30,6 @@ type ActionState = {
   success?: string;
 };
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 function TeamMembersSkeleton() {
   return (
@@ -54,7 +53,7 @@ function TeamMembersSkeleton() {
 }
 
 function TeamMembers() {
-  const { data: teamData } = useSWR<TeamDataWithMembers>('/api/team', fetcher);
+  const { data: teamData } = useSWR<TeamDataWithMembers>('/api/team');
   const [removeState, removeAction, isRemovePending] = useActionState<
     ActionState,
     FormData
@@ -148,7 +147,7 @@ function InviteTeamMemberSkeleton() {
 }
 
 function InviteTeamMember() {
-  const { data: user } = useSWR<User>('/api/user', fetcher);
+  const { data: user } = useSWR<User>('/api/user');
   const isOwner = user?.role === 'owner';
   const [inviteState, inviteAction, isInvitePending] = useActionState<
     ActionState,

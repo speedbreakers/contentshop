@@ -34,8 +34,6 @@ import {
 } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
 function ThemeMenu() {
   const { setTheme } = useTheme();
   return (
@@ -59,7 +57,7 @@ function ThemeMenu() {
 function UserFooter() {
   const router = useRouter();
   const { open, setOpenMobile } = useSidebar();
-  const { data: user } = useSWR<User>('/api/user', fetcher);
+  const { data: user } = useSWR<User>('/api/user');
 
   async function handleSignOut() {
     await signOut();

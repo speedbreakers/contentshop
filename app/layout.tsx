@@ -1,9 +1,8 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { Manrope } from 'next/font/google';
-import { getUser, getTeamForUser } from '@/lib/db/queries';
-import { SWRConfig } from 'swr';
-import { ThemeProvider } from '@/components/theme-provider';
+import { AppProviders } from '@/components/app-providers';
+import { getTeamForUser, getUser } from '@/lib/db/queries';
 
 export const metadata: Metadata = {
   title: 'Next.js SaaS Starter',
@@ -16,11 +15,20 @@ export const viewport: Viewport = {
 
 const manrope = Manrope({ subsets: ['latin'] });
 
-export default function RootLayout({
+export default async function RootLayout({
   children
 }: {
   children: React.ReactNode;
 }) {
+  // Preload common session-bound data so initial client render doesn't waterfall.
+  // Must be JSON-serializable because it's passed into a Client Component.
+  const user = await getUser();
+  const team = await getTeamForUser();
+  const fallback = {
+    '/api/user': user ? JSON.parse(JSON.stringify(user)) : null,
+    '/api/team': team ? JSON.parse(JSON.stringify(team)) : null,
+  };
+
   return (
     <html
       lang="en"
@@ -28,25 +36,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-[100dvh] bg-gray-50">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <SWRConfig
-            value={{
-              fallback: {
-                // We do NOT await here
-                // Only components that read this data will suspend
-                '/api/user': getUser(),
-                '/api/team': getTeamForUser()
-              }
-            }}
-          >
-            {children}
-          </SWRConfig>
-        </ThemeProvider>
+        <AppProviders fallback={fallback}>{children}</AppProviders>
       </body>
     </html>
   );

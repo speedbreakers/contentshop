@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
+import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -58,9 +59,27 @@ function safeJson(value: any, fallback: any) {
 }
 
 export default function MoodboardsPage() {
-    const [items, setItems] = useState<Moodboard[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const {
+        data,
+        error: swrError,
+        isLoading: loading,
+        mutate: mutateMoodboards,
+    } = useSWR<{ items: any[] }>('/api/moodboards');
+
+    const error = swrError instanceof Error ? swrError.message : swrError ? 'Failed to load moodboards' : null;
+
+    const items: Moodboard[] = useMemo(() => {
+        const list = Array.isArray(data?.items) ? data!.items : [];
+        return list.map((m: any) => ({
+            id: Number(m.id),
+            name: String(m.name),
+            description: m.description ?? null,
+            styleProfile: m.styleProfile ?? m.style_profile ?? {},
+            assetsCount: Number(m.assetsCount ?? 0),
+            updatedAt: m.updatedAt ?? null,
+            previewAssets: Array.isArray(m.previewAssets) ? m.previewAssets : [],
+        }));
+    }, [data]);
 
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState<Moodboard | null>(null);
@@ -78,11 +97,45 @@ export default function MoodboardsPage() {
 
     const [assetsOpen, setAssetsOpen] = useState(false);
     const [assetsFor, setAssetsFor] = useState<Moodboard | null>(null);
-    const [assets, setAssets] = useState<MoodboardAsset[]>([]);
-    const [uploads, setUploads] = useState<UploadItem[]>([]);
     const [selectedUploadIds, setSelectedUploadIds] = useState<Record<number, boolean>>({});
     const [uploading, setUploading] = useState(false);
     const uploadInputRef = useRef<HTMLInputElement | null>(null);
+
+    const assetsKey = assetsOpen && assetsFor ? `/api/moodboards/${assetsFor.id}/assets` : null;
+    const uploadsKey = assetsOpen ? '/api/uploads?kind=moodboard' : null;
+
+    const {
+        data: assetsData,
+        isLoading: assetsLoading,
+        mutate: mutateAssets,
+    } = useSWR<{ items: any[] }>(assetsKey);
+
+    const {
+        data: uploadsData,
+        isLoading: uploadsLoading,
+        mutate: mutateUploads,
+    } = useSWR<{ items: any[] }>(uploadsKey);
+
+    const assets: MoodboardAsset[] = useMemo(() => {
+        const list = Array.isArray(assetsData?.items) ? assetsData!.items : [];
+        return list.map((a: any) => ({
+            id: Number(a.id),
+            uploadedFileId: Number(a.uploadedFileId),
+            originalName: a.originalName ?? null,
+            contentType: a.contentType ?? null,
+            url: String(a.url),
+        }));
+    }, [assetsData]);
+
+    const uploads: UploadItem[] = useMemo(() => {
+        const list = Array.isArray(uploadsData?.items) ? uploadsData!.items : [];
+        return list.map((u: any) => ({
+            id: Number(u.id),
+            originalName: u.originalName ?? null,
+            contentType: u.contentType ?? null,
+            url: String(u.url),
+        }));
+    }, [uploadsData]);
 
     const styleProfile = useMemo(() => {
         return {
@@ -102,35 +155,7 @@ export default function MoodboardsPage() {
         };
     }, [tone, fontFamily, textCase, rules, doNot]);
 
-    async function load() {
-        setLoading(true);
-        setError(null);
-        try {
-            const res = await fetch('/api/moodboards');
-            const json = await res.json().catch(() => null);
-            if (!res.ok) throw new Error(json?.error ?? `Failed to load (HTTP ${res.status})`);
-            const list = Array.isArray(json?.items) ? json.items : [];
-            setItems(
-                list.map((m: any) => ({
-                    id: Number(m.id),
-                    name: String(m.name),
-                    description: m.description ?? null,
-                    styleProfile: m.styleProfile ?? m.style_profile ?? {},
-                    assetsCount: Number(m.assetsCount ?? 0),
-                    updatedAt: m.updatedAt ?? null,
-                    previewAssets: Array.isArray(m.previewAssets) ? m.previewAssets : [],
-                }))
-            );
-        } catch (e: any) {
-            setError(e?.message ? String(e.message) : 'Failed to load moodboards');
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    useEffect(() => {
-        load();
-    }, []);
+    // Note: list loading is handled by SWR.
 
     function openCreate() {
         setEditing(null);
@@ -174,50 +199,20 @@ export default function MoodboardsPage() {
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? `Save failed (HTTP ${res.status})`);
         setOpen(false);
-        await load();
+        await mutateMoodboards();
     }
 
     async function removeMoodboard(m: Moodboard) {
         const res = await fetch(`/api/moodboards/${m.id}`, { method: 'DELETE' });
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? `Delete failed (HTTP ${res.status})`);
-        await load();
+        await mutateMoodboards();
     }
 
     async function openAssets(m: Moodboard) {
         setAssetsFor(m);
-        setAssetsOpen(true);
         setSelectedUploadIds({});
-
-        const [assetsRes, uploadsRes] = await Promise.all([
-            fetch(`/api/moodboards/${m.id}/assets`),
-            fetch('/api/uploads?kind=moodboard'),
-        ]);
-        const assetsJson = await assetsRes.json().catch(() => null);
-        const uploadsJson = await uploadsRes.json().catch(() => null);
-        if (assetsRes.ok) {
-            const list = Array.isArray(assetsJson?.items) ? assetsJson.items : [];
-            setAssets(
-                list.map((a: any) => ({
-                    id: Number(a.id),
-                    uploadedFileId: Number(a.uploadedFileId),
-                    originalName: a.originalName ?? null,
-                    contentType: a.contentType ?? null,
-                    url: String(a.url),
-                }))
-            );
-        }
-        if (uploadsRes.ok) {
-            const list = Array.isArray(uploadsJson?.items) ? uploadsJson.items : [];
-            setUploads(
-                list.map((u: any) => ({
-                    id: Number(u.id),
-                    originalName: u.originalName ?? null,
-                    contentType: u.contentType ?? null,
-                    url: String(u.url),
-                }))
-            );
-        }
+        setAssetsOpen(true);
     }
 
     async function attachSelected() {
@@ -236,23 +231,8 @@ export default function MoodboardsPage() {
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? `Attach failed (HTTP ${res.status})`);
 
-        // Refresh assets list
-        const assetsRes = await fetch(`/api/moodboards/${assetsFor.id}/assets`);
-        const assetsJson = await assetsRes.json().catch(() => null);
-        if (assetsRes.ok) {
-            const list = Array.isArray(assetsJson?.items) ? assetsJson.items : [];
-            setAssets(
-                list.map((a: any) => ({
-                    id: Number(a.id),
-                    uploadedFileId: Number(a.uploadedFileId),
-                    originalName: a.originalName ?? null,
-                    contentType: a.contentType ?? null,
-                    url: String(a.url),
-                }))
-            );
-        }
         setSelectedUploadIds({});
-        await load();
+        await Promise.all([mutateAssets(), mutateUploads(), mutateMoodboards()]);
     }
 
     async function uploadAndAttach(files: FileList | null) {
@@ -282,41 +262,8 @@ export default function MoodboardsPage() {
                 if (!attachRes.ok) throw new Error(attachJson?.error ?? `Attach failed (HTTP ${attachRes.status})`);
             }
 
-            // Refresh both panes.
-            const [assetsRes, uploadsRes] = await Promise.all([
-                fetch(`/api/moodboards/${assetsFor.id}/assets`),
-                fetch('/api/uploads?kind=moodboard'),
-            ]);
-            const assetsJson = await assetsRes.json().catch(() => null);
-            const uploadsJson = await uploadsRes.json().catch(() => null);
-
-            if (assetsRes.ok) {
-                const list = Array.isArray(assetsJson?.items) ? assetsJson.items : [];
-                setAssets(
-                    list.map((a: any) => ({
-                        id: Number(a.id),
-                        uploadedFileId: Number(a.uploadedFileId),
-                        originalName: a.originalName ?? null,
-                        contentType: a.contentType ?? null,
-                        url: String(a.url),
-                    }))
-                );
-            }
-
-            if (uploadsRes.ok) {
-                const list = Array.isArray(uploadsJson?.items) ? uploadsJson.items : [];
-                setUploads(
-                    list.map((u: any) => ({
-                        id: Number(u.id),
-                        originalName: u.originalName ?? null,
-                        contentType: u.contentType ?? null,
-                        url: String(u.url),
-                    }))
-                );
-            }
-
             setSelectedUploadIds({});
-            await load();
+            await Promise.all([mutateAssets(), mutateUploads(), mutateMoodboards()]);
         } finally {
             setUploading(false);
             // Allow selecting the same file again by resetting the input value.
@@ -329,8 +276,7 @@ export default function MoodboardsPage() {
         const res = await fetch(`/api/moodboards/${assetsFor.id}/assets/${assetId}`, { method: 'DELETE' });
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? `Remove failed (HTTP ${res.status})`);
-        setAssets((prev) => prev.filter((a) => a.id !== assetId));
-        await load();
+        await Promise.all([mutateAssets(), mutateMoodboards()]);
     }
 
     return (
@@ -579,7 +525,9 @@ export default function MoodboardsPage() {
                     <div className="space-y-6">
                         <div>
                             <div className="text-sm font-medium mb-2">Current assets</div>
-                            {assets.length === 0 ? (
+                            {assetsLoading ? (
+                                <div className="text-sm text-muted-foreground">Loading…</div>
+                            ) : assets.length === 0 ? (
                                 <div className="text-sm text-muted-foreground">No assets attached.</div>
                             ) : (
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -636,7 +584,11 @@ export default function MoodboardsPage() {
                                 </div>
                             </div>
                             {uploads.length === 0 ? (
-                                <div className="text-sm text-muted-foreground">No uploads found.</div>
+                                uploadsLoading ? (
+                                    <div className="text-sm text-muted-foreground">Loading…</div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground">No uploads found.</div>
+                                )
                             ) : (
                                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                                     {uploads.map((u) => {
