@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput } from 'lucide-react';
+import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -258,6 +259,58 @@ export default function VariantAssetsPage() {
     lightbox?.kind === 'setItem'
       ? (itemsBySetId[lightbox.setId ?? -1] ?? []).find((i) => i.id === lightbox.id) ?? null
       : null;
+
+  const lightboxFolderId = lightbox?.kind === 'setItem' ? (lightbox.setId ?? null) : null;
+  const lightboxFolderItems = useMemo(() => {
+    if (!lightboxFolderId) return [];
+    return (itemsBySetId[lightboxFolderId] ?? [])
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [itemsBySetId, lightboxFolderId]);
+
+  const lightboxIndex = useMemo(() => {
+    if (!lightboxSetItem) return -1;
+    return lightboxFolderItems.findIndex((x) => x.id === lightboxSetItem.id);
+  }, [lightboxFolderItems, lightboxSetItem]);
+
+  const canPrevLightbox = lightboxIndex > 0;
+  const canNextLightbox = lightboxIndex >= 0 && lightboxIndex < lightboxFolderItems.length - 1;
+
+  function goToLightboxIndex(nextIndex: number) {
+    if (!lightboxFolderId) return;
+    const next = lightboxFolderItems[nextIndex];
+    if (!next) return;
+    setEditInstructions('');
+    setEditReferenceImageUrl('');
+    setLightbox({ kind: 'setItem', id: next.id, setId: lightboxFolderId });
+  }
+
+  function goToPrevLightbox() {
+    if (!canPrevLightbox) return;
+    goToLightboxIndex(lightboxIndex - 1);
+  }
+
+  function goToNextLightbox() {
+    if (!canNextLightbox) return;
+    goToLightboxIndex(lightboxIndex + 1);
+  }
+
+  // Lightbox keyboard navigation (left/right arrows).
+  useEffect(() => {
+    if (!lightbox) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPrevLightbox();
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToNextLightbox();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [lightbox, canPrevLightbox, canNextLightbox, lightboxIndex, lightboxFolderId, lightboxFolderItems]);
 
   const deleteSet =
     deleteId?.kind === 'set' ? sets.find((s) => s.id === deleteId.id) ?? null : null;
@@ -946,7 +999,15 @@ export default function VariantAssetsPage() {
                               className="flex items-center gap-3 min-w-0 text-left"
                               title="Open"
                             >
-                              <img src={i.url} alt="" className="h-10 w-10 rounded-md object-cover border" />
+                              <div className="relative h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0">
+                                <Image
+                                  src={i.url}
+                                  alt=""
+                                  fill
+                                  sizes="40px"
+                                  className="object-cover"
+                                />
+                              </div>
                               <div className="min-w-0">
                                 <div className="text-sm font-medium truncate">{i.label}</div>
                                 <div className="text-xs text-muted-foreground">
@@ -1239,8 +1300,14 @@ export default function VariantAssetsPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-md border overflow-hidden bg-muted">
-                <div className="aspect-square">
-                  <img src={detailsItem.url} alt="" className="w-full h-full object-contain" />
+                <div className="aspect-square relative">
+                  <Image
+                    src={detailsItem.url}
+                    alt=""
+                    fill
+                    sizes="(min-width: 768px) 50vw, 100vw"
+                    className="object-contain"
+                  />
                 </div>
               </div>
               <div className="space-y-3">
@@ -1311,38 +1378,72 @@ export default function VariantAssetsPage() {
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-md border overflow-hidden bg-muted">
-              <div className="aspect-square relative">
+              <div className="aspect-square relative group">
                 {lightboxSetItem ? (
-                  <img src={lightboxSetItem.url} alt="" className="w-full h-full object-contain" />
+                  <Image
+                    src={lightboxSetItem.url}
+                    alt=""
+                    fill
+                    sizes="(min-width: 768px) 50vw, 100vw"
+                    className="object-contain"
+                  />
                 ) : null}
 
-                <div className="absolute bottom-2 flex justify-between w-full px-4">
-                  <div className="flex items-center gap-2">
-                    {lightboxSetItem ? (
-                      <>
-                        <Badge variant={lightboxSetItem.status === 'ready' ? 'secondary' : 'outline'}>
-                          {lightboxSetItem.status}
-                        </Badge>
-                        <Badge variant="outline">{formatWhen(lightboxSetItem.createdAt)}</Badge>
-                      </>
-                    ) : null}
+                {/* Prev/Next controls */}
+                <button
+                  type="button"
+                  onClick={goToPrevLightbox}
+                  disabled={!canPrevLightbox}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 backdrop-blur hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Previous image"
+                  title="Previous"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={goToNextLightbox}
+                  disabled={!canNextLightbox}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 backdrop-blur hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Next image"
+                  title="Next"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+
+                {/* Hover overlay: pills + download */}
+                <div className="absolute inset-x-0 bottom-0 p-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center justify-between gap-3 rounded-md bg-background/80 backdrop-blur border px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {lightboxSetItem ? (
+                        <>
+                          <Badge variant={lightboxSetItem.status === 'ready' ? 'secondary' : 'outline'}>
+                            {lightboxSetItem.status}
+                          </Badge>
+                          <Badge variant="outline">{formatWhen(lightboxSetItem.createdAt)}</Badge>
+                          {lightboxFolderItems.length > 1 && lightboxIndex >= 0 ? (
+                            <Badge variant="outline">
+                              {lightboxIndex + 1}/{lightboxFolderItems.length}
+                            </Badge>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-8"
+                      onClick={async () => {
+                        if (lightboxSetItem) {
+                          await downloadImage(lightboxSetItem);
+                          return;
+                        }
+                      }}
+                      disabled={!lightboxSetItem || lightboxSetItem.status !== 'ready'}
+                      title="Download"
+                    >
+                      Download
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    onClick={async () => {
-                      if (lightboxSetItem) {
-                        await downloadImage(lightboxSetItem);
-                        return;
-                      }
-                    }}
-                    disabled={
-                      !lightboxSetItem || lightboxSetItem.status !== 'ready'
-                    }
-                    title="Download"
-                  >
-                    Download
-                  </Button>
                 </div>
               </div>
             </div>

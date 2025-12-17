@@ -84,25 +84,11 @@ interface SyncJob {
   updatedAt: string;
 }
 
-function ShopifyIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="M15.337 3.415c-.03-.18-.18-.27-.3-.285-.12-.015-2.625-.195-2.625-.195s-1.755-1.74-1.935-1.935c-.18-.18-.54-.12-.675-.075-.015 0-.345.105-.885.27-.525-1.515-1.455-2.91-3.09-2.91h-.135C5.1-.18 4.38 0 3.72.405 2.37 1.215 1.68 2.94 1.38 4.395c-1.095.33-1.875.57-1.965.6-.615.18-.63.195-.705.78C.66 6.33-.015 12.135-.015 12.135l11.49 2.16v-10.8s-.12-.015-.135-.015z" />
-    </svg>
-  );
-}
-
 function ProviderBadge({ provider }: { provider: string }) {
   switch (provider) {
     case 'shopify':
       return (
         <Badge variant="outline" className="gap-1">
-          <ShopifyIcon className="h-3 w-3" />
           Shopify
         </Badge>
       );
@@ -115,7 +101,7 @@ function StatusBadge({ status }: { status: string }) {
   if (status === 'connected') {
     return (
       <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
-        <Check className="mr-1 h-3 w-3" />
+        <Check className="mr-1 h-2 w-2" />
         Connected
       </Badge>
     );
@@ -347,6 +333,8 @@ export default function StorefrontsPage() {
   async function openSyncWizard(account: CommerceAccount) {
     setSyncAccount(account);
     setSyncJob(null);
+    setSyncLoading(false);
+    setSyncPolling(false);
     setSyncOpen(true);
 
     // Load current sync status
@@ -470,7 +458,24 @@ export default function StorefrontsPage() {
               {accounts.map((account) => (
                 <div
                   key={account.id}
-                  className="flex items-center justify-between py-4 first:pt-0 last:pb-0"
+                  className={`flex items-center justify-between py-4 ${
+                    account.status === 'connected'
+                      ? 'cursor-pointer rounded-md px-2 -mx-2 hover:bg-muted/50'
+                      : ''
+                  }`}
+                  onClick={() => {
+                    if (account.status !== 'connected') return;
+                    router.push(`/dashboard/storefronts/${account.id}/catalog`);
+                  }}
+                  role={account.status === 'connected' ? 'button' : undefined}
+                  tabIndex={account.status === 'connected' ? 0 : undefined}
+                  onKeyDown={(e) => {
+                    if (account.status !== 'connected') return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      router.push(`/dashboard/storefronts/${account.id}/catalog`);
+                    }
+                  }}
                 >
                   <div className="flex items-center gap-4">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
@@ -488,6 +493,7 @@ export default function StorefrontsPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-sm text-muted-foreground hover:underline flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {account.shopDomain}
                           <ExternalLink className="h-3 w-3" />
@@ -496,7 +502,7 @@ export default function StorefrontsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                     {account.status === 'connected' && (
                       <Button
                         variant="outline"
@@ -607,7 +613,18 @@ export default function StorefrontsPage() {
       </Dialog>
 
       {/* Sync Wizard Dialog */}
-      <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
+      <Dialog
+        open={syncOpen}
+        onOpenChange={(open) => {
+          setSyncOpen(open);
+          if (!open) {
+            setSyncLoading(false);
+            setSyncPolling(false);
+            setSyncJob(null);
+            setSyncAccount(null);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Sync Catalog</DialogTitle>
@@ -680,7 +697,11 @@ export default function StorefrontsPage() {
               {syncLoading || syncJob?.status === 'running' || syncJob?.status === 'queued' ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {syncJob?.status === 'running' ? 'Syncing...' : 'Starting...'}
+                  {syncLoading
+                    ? 'Starting...'
+                    : syncJob?.status === 'running'
+                      ? 'Syncing'
+                      : 'Queued'}
                 </>
               ) : (
                 <>

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
@@ -243,9 +244,11 @@ export function VariantsTable(props: {
                       <div className='flex items-center gap-x-4'>
                         <div className="h-12 w-12 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
                           {v.imageUrl ? (
-                            <img
+                            <Image
                               src={v.imageUrl}
                               alt=""
+                              width={48}
+                              height={48}
                               className="h-full w-full object-cover"
                             />
                           ) : (

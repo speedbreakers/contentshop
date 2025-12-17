@@ -35,7 +35,7 @@ export default function SecurityPage() {
 
   return (
     <section className="flex-1 p-4 lg:p-8">
-      <h1 className="text-lg lg:text-2xl font-medium bold text-gray-900 mb-6">
+      <h1 className="text-lg lg:text-2xl font-medium mb-6">
         Security Settings
       </h1>
       <Card className="mb-8">
@@ -114,9 +114,6 @@ export default function SecurityPage() {
           <CardTitle>Delete Account</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-gray-500 mb-4">
-            Account deletion is non-reversable. Please proceed with caution.
-          </p>
           <form action={deleteAction} className="space-y-4">
             <FieldGroup>
               <Field>
@@ -152,6 +149,10 @@ export default function SecurityPage() {
               )}
             </Button>
           </form>
+
+          <p className="text-sm text-muted-foreground mt-4">
+            *Account deletion is non-reversable. Please proceed with caution.
+          </p>
         </CardContent>
       </Card>
     </section>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, use, useCallback } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import useSWR, { mutate } from 'swr';
 import {
@@ -155,7 +156,7 @@ function ProductImage({ src, alt }: { src: string | null; alt: string }) {
     );
   }
   return (
-    <img src={src} alt={alt} className="h-12 w-12 rounded-md object-cover" />
+    <Image src={src} alt={alt} width={48} height={48} className="h-12 w-12 rounded-md object-cover" />
   );
 }
 

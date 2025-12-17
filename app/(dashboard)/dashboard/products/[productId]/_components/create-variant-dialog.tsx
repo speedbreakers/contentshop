@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useMemo, useRef, useState } from 'react';
 import { FakeProduct, FakeVariant } from '@/lib/fake/products';
 import {
@@ -158,10 +159,12 @@ export function CreateVariantDialog(props: {
 
               {imageUrl ? (
                 <>
-                  <img
+                  <Image
                     src={imageUrl}
                     alt="Variant preview"
-                    className="h-full w-full object-cover"
+                    fill
+                    sizes="180px"
+                    className="object-cover"
                   />
                   <button
                     type="button"

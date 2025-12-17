@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -107,7 +108,13 @@ export function AssetPickerField(props: {
             title={props.value ? 'Change image' : 'Choose image'}
           >
             {props.value ? (
-              <img src={props.value} alt="" className="h-full w-full object-cover" />
+              <Image
+                src={props.value}
+                alt=""
+                fill
+                sizes="80px"
+                className="object-cover"
+              />
             ) : (
               <span className="text-xs text-muted-foreground">No image</span>
             )}
@@ -218,7 +225,13 @@ export function AssetPickerField(props: {
                     >
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0">
-                          <img src={i.url} alt="" className="h-full w-full object-cover" />
+                          <Image
+                            src={i.url}
+                            alt=""
+                            width={40}
+                            height={40}
+                            className="h-full w-full object-cover"
+                          />
                         </div>
                         <div className="min-w-0">
                           <div title={i.originalName ?? `File ${i.id}`} className="text-sm font-medium truncate text-ellipsis max-w-[200px]">
@@ -248,7 +261,15 @@ export function AssetPickerField(props: {
                       }}
                       className="rounded-md border overflow-hidden hover:bg-muted/30 text-left"
                     >
-                      <img src={t.previewUrl} alt="" className="h-32 w-full object-cover" />
+                      <div className="relative h-32 w-full bg-muted">
+                        <Image
+                          src={t.previewUrl}
+                          alt=""
+                          fill
+                          sizes="(min-width: 640px) 50vw, 100vw"
+                          className="object-cover"
+                        />
+                      </div>
                       <div className="p-2">
                         <div className="text-sm font-medium">{t.name}</div>
                         <div className="text-xs text-muted-foreground">Template</div>

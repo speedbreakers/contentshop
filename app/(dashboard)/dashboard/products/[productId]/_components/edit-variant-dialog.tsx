@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import {
   Dialog,
@@ -126,7 +127,13 @@ export function EditVariantDialog(props: {
 
               {imageUrl ? (
                 <>
-                  <img src={imageUrl} alt="Variant preview" className="h-full w-full object-cover" />
+                  <Image
+                    src={imageUrl}
+                    alt="Variant preview"
+                    fill
+                    sizes="180px"
+                    className="object-cover"
+                  />
                   <button
                     type="button"
                     onClick={() => setImageUrl('')}

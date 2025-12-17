@@ -60,10 +60,6 @@ export function CreditBalance() {
 
   const details = !data ? null : (
     <div className="space-y-3">
-      <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-        Credits
-      </div>
-
       {/* Image Credits */}
       <div className="space-y-1">
         <div className="flex items-center justify-between text-sm">
@@ -194,7 +190,7 @@ export function CreditBalance() {
   }
 
   return (
-    <div className="px-3 py-2 space-y-3">
+    <div className="px-2 py-2 space-y-3">
       {details}
     </div>
   );

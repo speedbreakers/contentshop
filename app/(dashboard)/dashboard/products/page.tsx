@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -318,10 +319,12 @@ export default function ProductsPage() {
                   />
                   {newImageUrl ? (
                     <>
-                      <img
+                      <Image
                         src={newImageUrl}
                         alt="Product preview"
-                        className="h-full w-full object-cover"
+                        fill
+                        sizes="180px"
+                        className="object-cover"
                       />
                       <button
                         type="button"
@@ -480,9 +483,11 @@ export default function ProductsPage() {
                       <TableCell className="flex items-center gap-4">
                         <div className="h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
                           {p.imageUrl ? (
-                            <img
+                            <Image
                               src={p.imageUrl}
                               alt=""
+                              width={40}
+                              height={40}
                               className="h-full w-full object-cover"
                             />
                           ) : (
@@ -591,10 +596,12 @@ export default function ProductsPage() {
                 />
                 {editImageUrl ? (
                   <>
-                    <img
+                    <Image
                       src={editImageUrl}
                       alt="Product preview"
-                      className="h-full w-full object-cover"
+                      fill
+                      sizes="180px"
+                      className="object-cover"
                     />
                     <button
                       type="button"

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from './drizzle';
 import { moodboardAssets, moodboards, uploadedFiles } from './schema';
 
@@ -23,6 +23,53 @@ export async function listMoodboards(teamId: number) {
     .orderBy(desc(moodboards.updatedAt));
 
   return rows;
+}
+
+export async function listMoodboardAssetPreviews(
+  teamId: number,
+  moodboardIds: number[],
+  perMoodboard = 4
+) {
+  const ids = Array.from(new Set(moodboardIds.filter((n) => Number.isFinite(n))));
+  if (ids.length === 0) return [];
+
+  const rows = await db
+    .select({
+      moodboardId: moodboardAssets.moodboardId,
+      uploadedFileId: moodboardAssets.uploadedFileId,
+      sortOrder: moodboardAssets.sortOrder,
+      assetId: moodboardAssets.id,
+      originalName: uploadedFiles.originalName,
+      contentType: uploadedFiles.contentType,
+    })
+    .from(moodboardAssets)
+    .innerJoin(uploadedFiles, eq(uploadedFiles.id, moodboardAssets.uploadedFileId))
+    .where(and(eq(moodboardAssets.teamId, teamId), inArray(moodboardAssets.moodboardId, ids)))
+    .orderBy(asc(moodboardAssets.moodboardId), asc(moodboardAssets.sortOrder), asc(moodboardAssets.id));
+
+  const per = Math.max(0, Math.min(12, Math.floor(perMoodboard)));
+  const out: Array<{
+    moodboardId: number;
+    uploadedFileId: number;
+    originalName: string | null;
+    contentType: string | null;
+  }> = [];
+
+  const counts = new Map<number, number>();
+  for (const r of rows) {
+    const mid = Number(r.moodboardId);
+    const count = counts.get(mid) ?? 0;
+    if (count >= per) continue;
+    counts.set(mid, count + 1);
+    out.push({
+      moodboardId: mid,
+      uploadedFileId: Number(r.uploadedFileId),
+      originalName: (r.originalName as any) ?? null,
+      contentType: (r.contentType as any) ?? null,
+    });
+  }
+
+  return out;
 }
 
 export async function getMoodboardById(teamId: number, id: number) {

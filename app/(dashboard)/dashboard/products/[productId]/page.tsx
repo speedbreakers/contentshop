@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -155,6 +156,7 @@ export default function ProductDetailPage() {
   }
 
   function openEdit() {
+    if (!product) return;
     setEditTitle(product.title ?? '');
     setEditCategory((product.category as unknown as string) ?? 'apparel');
     setEditTags(product.tags ?? '');
@@ -185,6 +187,7 @@ export default function ProductDetailPage() {
   }
 
   async function saveEdit() {
+    if (!product) return;
     const title = editTitle.trim();
     if (!title) return;
 
@@ -239,9 +242,11 @@ export default function ProductDetailPage() {
           <div className='flex gap-x-4'>
             <div className="h-12 w-12 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
               {product.imageUrl ? (
-                <img
+                <Image
                   src={product.imageUrl}
                   alt=""
+                  width={48}
+                  height={48}
                   className="h-full w-full object-cover"
                 />
               ) : (
@@ -322,10 +327,12 @@ export default function ProductDetailPage() {
                 />
                 {editImageUrl ? (
                   <>
-                    <img
+                    <Image
                       src={editImageUrl}
                       alt="Product preview"
-                      className="h-full w-full object-cover"
+                      fill
+                      sizes="180px"
+                      className="object-cover"
                     />
                     <button
                       type="button"

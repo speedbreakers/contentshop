@@ -3,25 +3,24 @@
 - credits system - Done
 - infographics workflow - Done
 - garment workflow implementation - Done
+- shopify link - Done
+- make moodboard look good with small tiles of assets attached - Done
+- use nextjs image component - Done
+- show pills and download button on image on hover in view asset modal - Done
+- allow switching between images in the folder in the view asset modal - Done
+- Sync modal - on clicking sync the button keeps showing starting... - Done
+- clicking on storefront should take inside - Done
 
 - aspect ratio setting
-- shopify link
 - non-garment / infographics workflow implementation
 - description workflow implementation
 - invite team members email
 - plan upgrade / downgrade flow
 - model and background library
-- review copy (some parts are difficult to understand)
 - add better loaders
 - onboarding
 - useSwr everywhere
+- generating 10 images results in timeout on the frontend
 
 UI Issues:
-- clicking on storefront should take inside
-- Sync modal - on clicking sync the button keeps showing starting...
-- make moodboard look good with small tiles of assets attached
-- show pills and download button on image on hover in view asset modal
-- use nextjs image component
-- allow switching between images in the folder in the view asset modal
-
-- generating 10 images results in timeout on the frontend
+- review copy (some parts are difficult to understand)
