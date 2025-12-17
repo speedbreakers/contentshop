@@ -278,7 +278,7 @@ export default function ProductsPage() {
   }
 
   return (
-    <section className="flex-1 p-4 lg:p-8">
+    <section className="flex-1 p-4 pb-0 lg:p-8 lg:pb-0">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-lg lg:text-2xl font-medium">Products</h1>
@@ -423,12 +423,12 @@ export default function ProductsPage() {
         </Dialog>
       </div>
 
-      <Card className="mb-4">
+      <Card className="h-[calc(100dvh-200px)] min-h-0 flex flex-col overflow-hidden">
         <CardHeader>
           <CardTitle>All products</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex gap-3 mb-4">
+        <CardContent className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div className="flex gap-3 mb-4 shrink-0">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -436,87 +436,88 @@ export default function ProductsPage() {
             />
           </div>
           {loadError ? (
-            <div className="text-sm text-red-600 mb-3">{loadError}</div>
+            <div className="text-sm text-red-600 mb-3 shrink-0">{loadError}</div>
           ) : null}
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead>Variants</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
+          <div className="flex-1 min-h-0 overflow-auto pr-1">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Variants</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
 
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-muted-foreground">
-                    Loading…
-                  </TableCell>
-                </TableRow>
-              ) : filtered.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-muted-foreground">
-                    No products found.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filtered.map((p) => (
-                  <TableRow
-                    key={p.id}
-                    role="link"
-                    tabIndex={0}
-                    className="cursor-pointer hover:bg-muted/40"
-                    onClick={() => router.push(`/dashboard/products/${p.id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        router.push(`/dashboard/products/${p.id}`);
-                      }
-                    }}
-                  >
-                    <TableCell className="flex items-center gap-4">
-                      <div className="h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
-                        {p.imageUrl ? (
-                          <img
-                            src={p.imageUrl}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="font-medium">{p.title}</div>
-                        <div className="text-xs text-muted-foreground capitalize">
-                          {p.category}
-                        </div>
-                      </div>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-muted-foreground">
+                      Loading…
                     </TableCell>
-                    <TableCell>{p.variantsCount ?? '—'}</TableCell>
-
-                    <TableCell
-                      className="text-right"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
+                  </TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-muted-foreground">
+                      No products found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filtered.map((p) => (
+                    <TableRow
+                      key={p.id}
+                      role="link"
+                      tabIndex={0}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => router.push(`/dashboard/products/${p.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          router.push(`/dashboard/products/${p.id}`);
+                        }
+                      }}
                     >
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            <EllipsisVerticalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/dashboard/products/${p.id}`}>
-                              View
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEdit(p)}>
-                            Edit
-                          </DropdownMenuItem>
+                      <TableCell className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0 flex items-center justify-center">
+                          {p.imageUrl ? (
+                            <img
+                              src={p.imageUrl}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium">{p.title}</div>
+                          <div className="text-xs text-muted-foreground capitalize">
+                            {p.category}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{p.variantsCount ?? '—'}</TableCell>
+
+                      <TableCell
+                        className="text-right"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <EllipsisVerticalIcon className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/products/${p.id}`}>
+                                View
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openEdit(p)}>
+                              Edit
+                            </DropdownMenuItem>
 
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -543,14 +544,15 @@ export default function ProductsPage() {
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

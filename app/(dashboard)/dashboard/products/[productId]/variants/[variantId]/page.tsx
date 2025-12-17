@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Store, ExternalLink, PencilIcon, Plus } from 'lucide-react';
+import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -671,6 +672,31 @@ export default function VariantAssetsPage() {
     setSyncMessage(`Download started for ${items.length} image(s).`);
   }
 
+  async function downloadSelectedImages() {
+    const selected = Object.values(itemsBySetId)
+      .flat()
+      .filter((i) => i.isSelected && i.status === 'ready');
+
+    if (selected.length === 0) {
+      return;
+    }
+
+    for (const item of selected) {
+      const folder = sets.find((s) => s.id === item.setId)?.name ?? 'folder';
+      const file = `${safeFilename(folder)}-${safeFilename(item.label)}-${item.id}.png`;
+      await downloadFromUrl(item.url, file);
+    }
+
+    // Unselect all items after download
+    setItemsBySetId((prev) => {
+      const next: Record<number, FakeSetItem[]> = {};
+      for (const [setIdStr, items] of Object.entries(prev)) {
+        next[Number(setIdStr)] = items.map((i) => ({ ...i, isSelected: false }));
+      }
+      return next;
+    });
+  }
+
   if (!product || !variant) {
     return (
       <section className="flex-1 p-4 lg:p-8">
@@ -685,7 +711,7 @@ export default function VariantAssetsPage() {
   }
 
   return (
-    <section className="flex-1 p-4 lg:p-8">
+    <section className="flex-1 p-4 pb-0 lg:p-8 lg:pb-0">
       <div className="mb-6">
         <div className="text-sm text-muted-foreground mb-2">
           <Link href={`/dashboard/products/${product.id}`} className="hover:underline">
@@ -743,7 +769,7 @@ export default function VariantAssetsPage() {
       />
 
       <div className="space-y-6">
-        <Card>
+        <Card className="h-[calc(100dvh-220px)] min-h-0 flex flex-col overflow-hidden relative">
           <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div>
               <CardTitle>Generations</CardTitle>
@@ -760,20 +786,13 @@ export default function VariantAssetsPage() {
               >
                 Generate
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setMoveOpen(true)}
-                disabled={!activeFolderId || selectedGenerationCountInActiveFolder === 0}
-              >
-                Move
-              </Button>
             </div>
           </CardHeader>
 
-          <CardContent>
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <CardContent className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
               {/* Left pane: folders */}
-              <div className="lg:col-span-4 rounded-md border p-3 space-y-3">
+              <div className="lg:col-span-4 rounded-md border p-3 flex flex-col min-h-0 gap-3">
                 <div className="flex items-center gap-2">
                   <Input
                     className="flex-1"
@@ -792,7 +811,7 @@ export default function VariantAssetsPage() {
                   </Button>
                 </div>
 
-                <div className="space-y-2">
+                <div className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
                   {sets
                     .slice()
                     .sort(
@@ -875,7 +894,7 @@ export default function VariantAssetsPage() {
               </div>
 
               {/* Right pane: active folder contents */}
-              <div className="lg:col-span-8 rounded-md border p-3 space-y-3">
+              <div className="lg:col-span-8 rounded-md border p-3 flex flex-col min-h-0 gap-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium truncate">
@@ -897,56 +916,59 @@ export default function VariantAssetsPage() {
                   disabled={!activeFolderId}
                 />
 
-                {!activeFolderId ? (
-                  <p className="text-sm text-muted-foreground">
-                    Select a folder on the left to view its items.
-                  </p>
-                ) : (itemsBySetId[activeFolderId] ?? []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No items in this folder yet.
-                    {activeFolderId === defaultSetId ? ' Click Generate to create new outputs (they will land in Default).' : ' Use Move to organize items here.'}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {(itemsBySetId[activeFolderId] ?? [])
-                      .filter((i) => i.label.toLowerCase().includes(searchItems.trim().toLowerCase()))
-                      .slice()
-                      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-                      .map((i) => (
-                        <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditInstructions('');
-                              setEditReferenceImageUrl('');
-                              setLightbox({ kind: 'setItem', id: i.id, setId: i.setId });
-                            }}
-                            className="flex items-center gap-3 min-w-0 text-left"
-                            title="Open"
-                          >
-                            <img src={i.url} alt="" className="h-10 w-10 rounded-md object-cover border" />
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium truncate">{i.label}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {formatWhen(i.createdAt)} · {i.status}
-                              </div>
-                            </div>
-                          </button>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant={i.isSelected ? 'default' : 'outline'}
-                              onClick={() => toggleSetItemSelected(i.setId, i.id)}
+                <div className="flex-1 min-h-0 overflow-auto pr-1">
+                  {!activeFolderId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Select a folder on the left to view its items.
+                    </p>
+                  ) : (itemsBySetId[activeFolderId] ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No items in this folder yet.
+                      {activeFolderId === defaultSetId
+                        ? ' Click Generate to create new outputs (they will land in Default).'
+                        : ' Use Move to organize items here.'}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(itemsBySetId[activeFolderId] ?? [])
+                        .filter((i) => i.label.toLowerCase().includes(searchItems.trim().toLowerCase()))
+                        .slice()
+                        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+                        .map((i) => (
+                          <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditInstructions('');
+                                setEditReferenceImageUrl('');
+                                setLightbox({ kind: 'setItem', id: i.id, setId: i.setId });
+                              }}
+                              className="flex items-center gap-3 min-w-0 text-left"
+                              title="Open"
                             >
-                              {i.isSelected ? '✓' : 'Select'}
-                            </Button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button size="sm" variant="outline" className="h-8 px-2">
-                                  ⋯
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
+                              <img src={i.url} alt="" className="h-10 w-10 rounded-md object-cover border" />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium truncate">{i.label}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {formatWhen(i.createdAt)} · {i.status}
+                                </div>
+                              </div>
+                            </button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant={i.isSelected ? 'default' : 'outline'}
+                                onClick={() => toggleSetItemSelected(i.setId, i.id)}
+                              >
+                                {i.isSelected ? '✓' : 'Select'}
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="sm" variant="outline" className="h-8 px-2">
+                                    ⋯
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     setRenameItem({ setId: i.setId, itemId: i.id });
@@ -981,7 +1003,41 @@ export default function VariantAssetsPage() {
                 )}
               </div>
             </div>
+            </div>
           </CardContent>
+
+          {/* Floating Selection Toolbar */}
+          {selectedGenerationCount > 0 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+              <div className="flex items-center gap-2 rounded-lg border bg-background px-2 py-1.5 shadow-lg">
+                <span className="text-sm text-muted-foreground px-2">
+                  {selectedGenerationCount} selected
+                </span>
+                <div className="h-4 w-px bg-border" />
+                <ToggleGroup type="single" variant="outline" size="sm">
+                  <ToggleGroupItem
+                    value="move"
+                    aria-label="Move selected"
+                    onClick={() => setMoveOpen(true)}
+                    disabled={!activeFolderId || selectedGenerationCountInActiveFolder === 0}
+                    className="gap-1.5 px-3"
+                  >
+                    <FolderInput className="h-4 w-4" />
+                    Move
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="download"
+                    aria-label="Download selected"
+                    onClick={downloadSelectedImages}
+                    className="gap-1.5 px-3"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
