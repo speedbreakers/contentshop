@@ -98,7 +98,7 @@ export default function BatchesPage() {
         <div>
           <h1 className="text-lg lg:text-2xl font-medium">Batches</h1>
           <p className="text-sm text-muted-foreground">
-            Run generation across multiple variants with per-variant image selection.
+            Run generations across multiple products.
           </p>
         </div>
 
