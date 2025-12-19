@@ -526,6 +526,10 @@ export async function createVariantGenerationWithGeminiOutputs(input: CreateVari
         ],
       } as any);
 
+      if (result.content?.[0]?.text && !result?.files?.length) {
+        throw new Error(`Gemini returned content: ${result.content[0].text}`);
+      }
+
       const files: any[] = Array.isArray(result?.files) ? result.files : [];
       const firstImage = files.find((f) => String(f?.mediaType ?? f?.mimeType ?? '').startsWith('image/')) ?? files[0];
       if (!firstImage) throw new Error('Gemini returned no files');

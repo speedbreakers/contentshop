@@ -28,6 +28,8 @@ import {
 } from './links';
 import type { CommerceProvider } from './providers/types';
 import { ingestShopifyImage, ingestShopifyImageForVariant } from './providers/shopify/ingest-image';
+import { getProductById } from '@/lib/db/products';
+import { getExternalProductByExternalId } from './external-catalog';
 
 export interface BulkImportResult {
   productsCreated: number;
@@ -224,7 +226,8 @@ async function createCanonicalVariant(
   teamId: number,
   productId: number,
   title: string | null,
-  sku: string | null
+  sku: string | null,
+  imageUrl?: string | undefined
 ) {
   const now = new Date();
 
@@ -240,6 +243,7 @@ async function createCanonicalVariant(
       sku: sku || null,
       createdAt: now,
       updatedAt: now,
+      imageUrl
     })
     .returning();
 
@@ -293,12 +297,10 @@ export async function bulkImportAndLink(
             extProduct.externalProductId
           );
 
-          // 3. Ingest product image if available (use product featured image or first variant image)
+          // 3. Ingest product image if available (use product featured image or any variant image)
           const productImageUrl =
             extProduct.featuredImageUrl ||
-            (unlinkedVariants.length > 0 && unlinkedVariants[0].featuredImageUrl
-              ? unlinkedVariants[0].featuredImageUrl
-              : null);
+            (unlinkedVariants.find(v => v.featuredImageUrl)?.featuredImageUrl || null);
 
           if (productImageUrl) {
             const uploadedFileId = await ingestShopifyImage({
@@ -339,7 +341,8 @@ export async function bulkImportAndLink(
                 teamId,
                 product.id,
                 extVariant.title || 'Default',
-                extVariant.sku
+                extVariant.sku,
+                productImageUrl || undefined
               );
 
               await createVariantLink(teamId, {
@@ -351,11 +354,13 @@ export async function bulkImportAndLink(
               });
 
               // Ingest variant image if available (and not already ingested)
-              if (extVariant.featuredImageUrl && !extVariant.uploadedFileId) {
+              // If variant has no image, use the product's featured image
+              const variantImageUrl = extVariant.featuredImageUrl || productImageUrl;
+              if (variantImageUrl && !extVariant.uploadedFileId) {
                 await ingestShopifyImageForVariant(
                   teamId,
                   extVariant.id,
-                  extVariant.featuredImageUrl,
+                  variantImageUrl,
                   extVariant.title || undefined
                 );
               }
@@ -426,11 +431,15 @@ export async function bulkImportAndLink(
           });
 
           // Ingest variant image if available (and not already ingested)
-          if (extVariant.featuredImageUrl && !extVariant.uploadedFileId) {
+          // If variant has no image, use the external product's featured image
+          const externalProduct = await getExternalProductByExternalId(accountId, externalProductId);
+          const productImageUrl = externalProduct?.featuredImageUrl || null;
+          const variantImageUrl = extVariant.featuredImageUrl || productImageUrl;
+          if (variantImageUrl && !extVariant.uploadedFileId) {
             await ingestShopifyImageForVariant(
               teamId,
               extVariant.id,
-              extVariant.featuredImageUrl,
+              variantImageUrl,
               extVariant.title || undefined
             );
           }

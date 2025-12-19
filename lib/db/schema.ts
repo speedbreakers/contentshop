@@ -152,6 +152,7 @@ export const moodboardAssets = pgTable(
     uploadedFileId: integer('uploaded_file_id')
       .notNull()
       .references(() => uploadedFiles.id),
+    kind: varchar('kind', { length: 20 }).notNull().default('reference'),
 
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -159,9 +160,12 @@ export const moodboardAssets = pgTable(
   (t) => ({
     teamIdx: index('moodboard_assets_team_id_idx').on(t.teamId),
     moodboardIdx: index('moodboard_assets_moodboard_id_idx').on(t.moodboardId),
-    uniqueMoodboardFile: uniqueIndex('moodboard_assets_moodboard_file_unique').on(
+    kindIdx: index('moodboard_assets_kind_idx').on(t.kind),
+    // Allow the same uploaded_file to exist in multiple sections (background/model/reference).
+    uniqueMoodboardFileKind: uniqueIndex('moodboard_assets_moodboard_file_kind_unique').on(
       t.moodboardId,
-      t.uploadedFileId
+      t.uploadedFileId,
+      t.kind
     ),
   })
 );

@@ -12,7 +12,7 @@ import {
   getGenerationWorkflow,
   resolveGenerationWorkflowKey,
 } from '@/lib/workflows/generation';
-import { getMoodboardById, listMoodboardAssets } from '@/lib/db/moodboards';
+import { getMoodboardById, listMoodboardAssetsByKind } from '@/lib/db/moodboards';
 import { signDownloadToken } from '@/lib/uploads/signing';
 
 export const runtime = 'nodejs';
@@ -103,6 +103,8 @@ export async function POST(request: Request) {
     styleProfile: Record<string, unknown>;
     assetFileIds: number[];
     assetUrls: string[];
+    backgroundAssetUrls: string[];
+    modelAssetUrls: string[];
     styleAppendix: string;
   } | null = null;
 
@@ -111,9 +113,19 @@ export async function POST(request: Request) {
     const mb = await getMoodboardById(team.id, Number(moodboardIdRaw));
     if (!mb) return Response.json({ error: 'Moodboard not found' }, { status: 404 });
 
-    const assets = await listMoodboardAssets(team.id, mb.id);
+    const backgroundAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'background');
+    const modelAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'model');
+    const referenceAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'reference');
     const exp = Date.now() + 1000 * 60 * 60;
-    const assetUrls = assets.map((a) => {
+    const backgroundAssetUrls = backgroundAssets.map((a) => {
+      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
+      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
+    });
+    const modelAssetUrls = modelAssets.map((a) => {
+      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
+      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
+    });
+    const assetUrls = referenceAssets.map((a) => {
       const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
       return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
     });
@@ -136,8 +148,14 @@ export async function POST(request: Request) {
       id: mb.id,
       name: mb.name,
       styleProfile: profile,
-      assetFileIds: assets.map((a) => a.uploadedFileId),
+      assetFileIds: [
+        ...backgroundAssets.map((a) => a.uploadedFileId),
+        ...modelAssets.map((a) => a.uploadedFileId),
+        ...referenceAssets.map((a) => a.uploadedFileId),
+      ],
       assetUrls,
+      backgroundAssetUrls,
+      modelAssetUrls,
       styleAppendix,
     };
   }
@@ -219,6 +237,12 @@ export async function POST(request: Request) {
     }
 
     const validatedInput = ok.data as any;
+    const moodboardStrength = validatedInput.moodboard_strength ?? 'inspired';
+    const backgroundReferenceImageUrls =
+      moodboard && moodboardStrength === 'strict' ? moodboard.backgroundAssetUrls.slice(0, 3) : [];
+    const modelReferenceImageUrls =
+      moodboard && moodboardStrength === 'strict' ? moodboard.modelAssetUrls.slice(0, 3) : [];
+    const extraReferenceImageUrls = [...backgroundReferenceImageUrls, ...modelReferenceImageUrls];
     const workflowKey = resolveGenerationWorkflowKey({
       productCategory: product.category,
       purpose: validatedInput.purpose,
@@ -280,7 +304,9 @@ export async function POST(request: Request) {
         numberOfVariations,
         prompts,
         moodboardId: moodboard?.id ?? null,
-        extraReferenceImageUrls: moodboard?.assetUrls ?? [],
+        extraReferenceImageUrls,
+        backgroundReferenceImageUrls,
+        modelReferenceImageUrls,
         requestOrigin,
         authCookie,
         productTitle: product.title,

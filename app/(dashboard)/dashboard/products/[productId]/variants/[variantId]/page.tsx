@@ -16,6 +16,14 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { AssetPickerField } from '@/components/asset-picker';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { refreshCredits } from '@/components/credits/credit-balance';
 import {
   DropdownMenu,
@@ -309,7 +317,11 @@ export default function VariantAssetsPage() {
   const [genAspectRatio, setGenAspectRatio] = useState<'1:1' | '4:5' | '3:4' | '16:9'>('1:1');
   const [genPurpose, setGenPurpose] = useState<'catalog' | 'ads' | 'infographics'>('catalog');
   const [genMoodboardId, setGenMoodboardId] = useState<number | null>(null);
+  const [genMoodboardStrength, setGenMoodboardStrength] = useState<'strict' | 'inspired'>(
+    'inspired'
+  );
   const [genCustomInstructions, setGenCustomInstructions] = useState<string[]>(['']);
+  const [genModelEnabled, setGenModelEnabled] = useState(true);
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
   const [genValidationError, setGenValidationError] = useState<string | null>(null);
@@ -676,7 +688,8 @@ export default function VariantAssetsPage() {
       product_images: productImages,
       purpose: genPurpose,
       moodboard_id: genMoodboardId,
-      model_image: genModelImageUrl.trim(),
+      moodboard_strength: genMoodboardId ? genMoodboardStrength : undefined,
+      model_image: genModelEnabled ? genModelImageUrl.trim() : '',
       background_image: genBackgroundImageUrl.trim(),
       number_of_variations: n,
       output_format: genOutputFormat,
@@ -1498,7 +1511,7 @@ export default function VariantAssetsPage() {
             <FieldGroup>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Left: required inputs */}
-                <div className="space-y-4 pr-4 border-r">
+                <div className="space-y-8 pr-4 border-r">
                   <div className="space-y-2">
                     <div className="text-sm font-medium">
                       Product images <span className="text-red-500">*</span>
@@ -1525,14 +1538,32 @@ export default function VariantAssetsPage() {
                     ) : null}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <AssetPickerField
-                      label="Model image"
-                      value={genModelImageUrl}
-                      onChange={setGenModelImageUrl}
-                      kind="model"
-                      allowTemplates
-                      templateKind="model"
-                    />
+                    <Field>
+                      <FieldLabel>Model</FieldLabel>
+                      <label className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={genModelEnabled}
+                          onCheckedChange={(v) => {
+                            const enabled = Boolean(v);
+                            setGenModelEnabled(enabled);
+                            if (!enabled) setGenModelImageUrl('');
+                          }}
+                        />
+                        <span>Include model</span>
+                      </label>
+                      <FieldDescription>Optional. Uncheck to generate without a model.</FieldDescription>
+                    </Field>
+
+                    {genModelEnabled ? (
+                      <AssetPickerField
+                        label="Model image"
+                        value={genModelImageUrl}
+                        onChange={setGenModelImageUrl}
+                        kind="model"
+                        allowTemplates
+                        templateKind="model"
+                      />
+                    ) : null}
                     <AssetPickerField
                       label="Background image"
                       value={genBackgroundImageUrl}
@@ -1561,51 +1592,75 @@ export default function VariantAssetsPage() {
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
-                      <select
-                        id="gen-ratio"
-                        value={genAspectRatio}
-                        onChange={(e) => setGenAspectRatio(e.target.value as any)}
-                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                      >
-                        <option value="1:1">1:1</option>
-                        <option value="4:5">4:5</option>
-                        <option value="3:4">3:4</option>
-                        <option value="16:9">16:9</option>
-                      </select>
+                      <Select value={genAspectRatio} onValueChange={(v) => setGenAspectRatio(v as any)}>
+                        <SelectTrigger id="gen-ratio" className="w-full">
+                          <SelectValue placeholder="Select ratio" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1:1">1:1</SelectItem>
+                          <SelectItem value="4:5">4:5</SelectItem>
+                          <SelectItem value="3:4">3:4</SelectItem>
+                          <SelectItem value="16:9">16:9</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </Field>
                   </div>
                   <Field>
                     <FieldLabel htmlFor="gen-purpose">Purpose</FieldLabel>
-                    <select
-                      id="gen-purpose"
-                      value={genPurpose}
-                      onChange={(e) => setGenPurpose(e.target.value as any)}
-                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                    >
-                      <option value="catalog">Catalog</option>
-                      <option value="ads">Ads</option>
-                      <option value="infographics">Infographics</option>
-                    </select>
+                    <Select value={genPurpose} onValueChange={(v) => setGenPurpose(v as any)}>
+                      <SelectTrigger id="gen-purpose" className="w-full">
+                        <SelectValue placeholder="Select purpose" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="catalog">Catalog</SelectItem>
+                        <SelectItem value="ads">Ads</SelectItem>
+                        <SelectItem value="infographics">Infographics</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="gen-moodboard">Moodboard (optional)</FieldLabel>
-                    <select
-                      id="gen-moodboard"
+                    <Select
                       value={genMoodboardId ? String(genMoodboardId) : ''}
-                      onChange={(e) => setGenMoodboardId(e.target.value ? Number(e.target.value) : null)}
-                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      onValueChange={(v) => setGenMoodboardId(v ? Number(v) : null)}
                     >
-                      <option value="">None</option>
-                      {moodboards.map((m) => (
-                        <option key={m.id} value={String(m.id)}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="gen-moodboard" className="w-full">
+                        <SelectValue placeholder="None" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="None">None</SelectItem>
+                        {moodboards.map((m) => (
+                          <SelectItem key={m.id} value={String(m.id)}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FieldDescription>
                       Applies a saved style profile + reference images to this generation.
                     </FieldDescription>
                   </Field>
+
+                  {genMoodboardId ? (
+                    <Field>
+                      <FieldLabel htmlFor="gen-moodboard-strength">Moodboard usage</FieldLabel>
+                      <Select
+                        value={genMoodboardStrength}
+                        onValueChange={(v) => setGenMoodboardStrength(v as 'strict' | 'inspired')}
+                      >
+                        <SelectTrigger id="gen-moodboard-strength" className="w-full">
+                          <SelectValue placeholder="Select usage" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inspired">Inspired (use style only)</SelectItem>
+                          <SelectItem value="strict">Strict (use moodboard images)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>
+                        Custom instructions override moodboard guidance.
+                      </FieldDescription>
+                    </Field>
+                  ) : null}
                 </div>
               </div>
 

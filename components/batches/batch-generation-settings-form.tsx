@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { AssetPickerField } from "@/components/asset-picker";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Copy } from "lucide-react";
 
 export type BatchGenerationPurpose = "catalog" | "ads" | "infographics";
@@ -12,6 +14,7 @@ export type BatchGenerationAspectRatio = "1:1" | "4:5" | "3:4" | "16:9";
 export type BatchGenerationOutputFormat = "png" | "jpg" | "webp";
 
 export type MoodboardOption = { id: number; name: string };
+export type MoodboardStrength = "strict" | "inspired";
 
 export function BatchGenerationSettingsForm(props: {
   numberOfVariations: number;
@@ -28,8 +31,12 @@ export function BatchGenerationSettingsForm(props: {
 
   moodboardId: number | null;
   onMoodboardIdChange: (v: number | null) => void;
+  moodboardStrength: MoodboardStrength;
+  onMoodboardStrengthChange: (v: MoodboardStrength) => void;
   moodboards: MoodboardOption[];
 
+  modelEnabled: boolean;
+  onModelEnabledChange: (v: boolean) => void;
   modelImageUrl: string;
   onModelImageUrlChange: (v: string) => void;
 
@@ -63,15 +70,32 @@ export function BatchGenerationSettingsForm(props: {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-4 pr-4 border-r">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <AssetPickerField
-              label="Model image"
-              value={props.modelImageUrl}
-              onChange={props.onModelImageUrlChange}
-              kind="model"
-              allowTemplates
-              templateKind="model"
-              description="Optional"
-            />
+            <Field>
+              <FieldLabel>Model</FieldLabel>
+              <label className="mt-2 flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={props.modelEnabled}
+                  onCheckedChange={(v) => {
+                    const enabled = Boolean(v);
+                    props.onModelEnabledChange(enabled);
+                    if (!enabled) props.onModelImageUrlChange("");
+                  }}
+                />
+                <span>Include model</span>
+              </label>
+              <FieldDescription>Optional. Uncheck to generate without a model.</FieldDescription>
+            </Field>
+            {props.modelEnabled ? (
+              <AssetPickerField
+                label="Model image"
+                value={props.modelImageUrl}
+                onChange={props.onModelImageUrlChange}
+                kind="model"
+                allowTemplates
+                templateKind="model"
+                description="Optional"
+              />
+            ) : null}
             <AssetPickerField
               label="Background image"
               value={props.backgroundImageUrl}
@@ -97,64 +121,86 @@ export function BatchGenerationSettingsForm(props: {
             </Field>
             <Field>
               <FieldLabel htmlFor="batch-ratio">Aspect ratio</FieldLabel>
-              <select
-                id="batch-ratio"
-                value={props.aspectRatio}
-                onChange={(e) => props.onAspectRatioChange(e.target.value as any)}
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-              >
-                <option value="1:1">1:1</option>
-                <option value="4:5">4:5</option>
-                <option value="3:4">3:4</option>
-                <option value="16:9">16:9</option>
-              </select>
+              <Select value={props.aspectRatio} onValueChange={(v) => props.onAspectRatioChange(v as any)}>
+                <SelectTrigger id="batch-ratio" className="w-full">
+                  <SelectValue placeholder="Select ratio" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1:1">1:1</SelectItem>
+                  <SelectItem value="4:5">4:5</SelectItem>
+                  <SelectItem value="3:4">3:4</SelectItem>
+                  <SelectItem value="16:9">16:9</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field>
               <FieldLabel htmlFor="batch-purpose">Purpose</FieldLabel>
-              <select
-                id="batch-purpose"
-                value={props.purpose}
-                onChange={(e) => props.onPurposeChange(e.target.value as any)}
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-              >
-                <option value="catalog">Catalog</option>
-                <option value="ads">Ads</option>
-                <option value="infographics">Infographics</option>
-              </select>
+              <Select value={props.purpose} onValueChange={(v) => props.onPurposeChange(v as any)}>
+                <SelectTrigger id="batch-purpose" className="w-full">
+                  <SelectValue placeholder="Select purpose" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="catalog">Catalog</SelectItem>
+                  <SelectItem value="ads">Ads</SelectItem>
+                  <SelectItem value="infographics">Infographics</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
             <Field>
               <FieldLabel htmlFor="batch-format">Output format</FieldLabel>
-              <select
-                id="batch-format"
-                value={props.outputFormat}
-                onChange={(e) => props.onOutputFormatChange(e.target.value as any)}
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-              >
-                <option value="png">PNG</option>
-                <option value="jpg">JPG</option>
-                <option value="webp">WEBP</option>
-              </select>
+              <Select value={props.outputFormat} onValueChange={(v) => props.onOutputFormatChange(v as any)}>
+                <SelectTrigger id="batch-format" className="w-full">
+                  <SelectValue placeholder="Select format" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="png">PNG</SelectItem>
+                  <SelectItem value="jpg">JPG</SelectItem>
+                  <SelectItem value="webp">WEBP</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
           </div>
           <Field>
             <FieldLabel htmlFor="batch-moodboard">Moodboard (optional)</FieldLabel>
-            <select
-              id="batch-moodboard"
+            <Select
               value={props.moodboardId ? String(props.moodboardId) : ""}
-              onChange={(e) => props.onMoodboardIdChange(e.target.value ? Number(e.target.value) : null)}
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              onValueChange={(v) => props.onMoodboardIdChange(v ? Number(v) : null)}
             >
-              <option value="">None</option>
-              {props.moodboards.map((m) => (
-                <option key={m.id} value={String(m.id)}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="batch-moodboard" className="w-full">
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="None">None</SelectItem>
+                {props.moodboards.map((m) => (
+                  <SelectItem key={m.id} value={String(m.id)}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <FieldDescription>Applies a saved style profile + reference images to all variants.</FieldDescription>
           </Field>
+
+          {props.moodboardId ? (
+            <Field>
+              <FieldLabel htmlFor="batch-moodboard-strength">Moodboard usage</FieldLabel>
+              <Select
+                value={props.moodboardStrength}
+                onValueChange={(v) => props.onMoodboardStrengthChange(v as MoodboardStrength)}
+              >
+                <SelectTrigger id="batch-moodboard-strength" className="w-full">
+                  <SelectValue placeholder="Select usage" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="inspired">Inspired (use style only)</SelectItem>
+                  <SelectItem value="strict">Strict (use moodboard images)</SelectItem>
+                </SelectContent>
+              </Select>
+              <FieldDescription>Custom instructions override moodboard guidance.</FieldDescription>
+            </Field>
+          ) : null}
         </div>
 
         <div className="space-y-3">

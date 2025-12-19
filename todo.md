@@ -14,24 +14,41 @@ Product:
 - useSwr everywhere - Done
 - generating 10 images results in timeout on the frontend - Done
 - if the user gives custom instructions for every generation in one text how do you handle that - Done
+- moodboard strictness - Done
+
 
 - aspect ratio setting
-- non-garment / infographics workflow implementation
+- non-garment workflow implementation 
+- infographics workflow implementation
 - description workflow implementation
+- garment workflow prompts
 - invite team members email
 - plan upgrade / downgrade flow
 - model and background library
-- add better loaders
 - onboarding
 - change all id fields to ulid
 - optimizations with kv
 - nano banana retry
 - applying moodboard properly
+- remove home page
+- batch processing bugs
 
 UI Issues:
+- flow for storefronts is not smooth
+- on clicking connect in storefront show a loader
+- add better loaders
 - review all empty states
 - review copy (some parts are difficult to understand)
 
 Business:
 - stripe setup
 - change gemini creds on ai gateway
+
+
+
+Process Jobs
+curl http://localhost:4200/api/commerce/cron/process-jobs
+
+Delete data
+curl -X DELETE "http://localhost:4200/api/user?userId=1" \
+  -H "Authorization: Bearer MSxpq12p4045ofdkm2350as012dklm32501pmglLkd"

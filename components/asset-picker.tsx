@@ -30,6 +30,7 @@ export function AssetPickerField(props: {
   allowTemplates?: boolean;
   templateKind?: ContentShopTemplateKind;
   description?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'upload' | 'library' | 'templates'>('upload');
@@ -99,13 +100,22 @@ export function AssetPickerField(props: {
     <Field>
       {props.label ? <FieldLabel>{props.label}</FieldLabel> : null}
       <div className="flex items-center gap-3">
-        <div className="group relative h-20 w-20 shrink-0 rounded-md border overflow-hidden bg-muted">
+        <div
+          className={[
+            'group relative h-20 w-20 shrink-0 rounded-md border overflow-hidden bg-muted',
+            props.disabled ? 'opacity-60 cursor-not-allowed' : '',
+          ].join(' ')}
+        >
           <button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              if (props.disabled) return;
+              setOpen(true);
+            }}
             className="absolute inset-0 z-10 flex items-center justify-center"
             aria-label={props.value ? 'Change selected image' : 'Choose an image'}
             title={props.value ? 'Change image' : 'Choose image'}
+            disabled={props.disabled}
           >
             {props.value ? (
               <Image
@@ -132,10 +142,14 @@ export function AssetPickerField(props: {
             <>
               <button
                 type="button"
-                onClick={() => setOpen(true)}
+                onClick={() => {
+                  if (props.disabled) return;
+                  setOpen(true);
+                }}
                 className="absolute left-1 bottom-1 z-30 inline-flex h-5 w-5 items-center justify-center rounded-md bg-black/55 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label="Edit image"
                 title="Edit image"
+                disabled={props.disabled}
               >
                 <PencilIcon className="h-3 w-3 text-white" />
               </button>
@@ -143,11 +157,13 @@ export function AssetPickerField(props: {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (props.disabled) return;
                   props.onChange('');
                 }}
                 className="absolute right-1 top-1 z-30 inline-flex h-5 w-5 items-center justify-center rounded-md bg-black/55 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label="Clear image"
                 title="Clear image"
+                disabled={props.disabled}
               >
                 <XIcon className="h-3 w-3" />
               </button>

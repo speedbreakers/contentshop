@@ -7,9 +7,9 @@
  * Each invocation processes a batch of jobs within the function timeout.
  */
 
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, desc } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
-import { commerceJobs } from '@/lib/db/schema';
+import { commerceJobs, generationJobs } from '@/lib/db/schema';
 import { processCatalogSyncJob } from '@/lib/commerce/providers/shopify/sync';
 import type { SyncProgress } from '@/lib/commerce/providers/types';
 import { getQueuedGenerationJobs } from '@/lib/db/generation-jobs';
@@ -17,6 +17,43 @@ import { processGenerationJob, processEditJob } from '@/lib/db/generations';
 
 // Max duration for Pro plan (can be up to 300s with maxDuration config)
 export const maxDuration = 60;
+
+// Debug endpoint to check all jobs
+export async function POST(request: Request) {
+  const allCommerceJobs = await db.query.commerceJobs.findMany({
+    limit: 20,
+    orderBy: desc(commerceJobs.createdAt),
+  });
+
+  const allGenerationJobs = await db.query.generationJobs.findMany({
+    limit: 20,
+    orderBy: desc(generationJobs.createdAt),
+  });
+
+  return Response.json({
+    commerceJobs: allCommerceJobs.map(j => ({
+      id: j.id,
+      status: j.status,
+      type: j.type,
+      teamId: j.teamId,
+      accountId: j.accountId,
+      createdAt: j.createdAt,
+      updatedAt: j.updatedAt,
+      error: j.error,
+    })),
+    generationJobs: allGenerationJobs.map(j => ({
+      id: j.id,
+      status: j.status,
+      type: j.type,
+      teamId: j.teamId,
+      productId: j.productId,
+      variantId: j.variantId,
+      createdAt: j.createdAt,
+      updatedAt: j.updatedAt,
+      error: j.error,
+    })),
+  });
+}
 
 export async function GET(request: Request) {
   // Verify cron secret (Vercel sends this automatically)
@@ -50,6 +87,16 @@ export async function GET(request: Request) {
     const generationJobsList = await getQueuedGenerationJobs(2);
 
     console.log(`[Cron] Found ${commerceJobsList.length} queued commerce jobs, ${generationJobsList.length} queued generation jobs`);
+
+    // Debug: log the found queued jobs
+    console.log(`[Cron] Queued commerce jobs found:`, commerceJobsList.map(j => ({ id: j.id, status: j.status, type: j.type, teamId: j.teamId })));
+
+    // Debug: log all commerce jobs regardless of status
+    const allCommerceJobs = await db.query.commerceJobs.findMany({
+      limit: 10,
+      orderBy: desc(commerceJobs.createdAt),
+    });
+    console.log(`[Cron] All recent commerce jobs:`, allCommerceJobs.map(j => ({ id: j.id, status: j.status, type: j.type, teamId: j.teamId, createdAt: j.createdAt })));
 
     // Process generation jobs
     for (const job of generationJobsList) {
@@ -85,6 +132,30 @@ export async function GET(request: Request) {
       }
     }
 
+    // Process commerce jobs
+    for (const job of commerceJobsList) {
+      try {
+        console.log(`[Cron] Processing commerce job ${job.id} (type: ${job.type})`);
+
+        if (job.type === 'shopify.catalog_sync') {
+          const result = await processCatalogSync(job);
+          results.push({
+            id: job.id,
+            type: job.type,
+            status: result.isComplete ? 'success' : 'continued',
+            error: result.error,
+          });
+          console.log(`[Cron] Commerce job ${job.id} completed with status: ${result.isComplete ? 'success' : 'continued'}`);
+        } else {
+          console.log(`[Cron] Unknown commerce job type: ${job.type}`);
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[Cron] Commerce job ${job.id} error:`, errorMsg);
+        results.push({ id: job.id, type: job.type, status: 'failed', error: errorMsg });
+      }
+    }
+
     return Response.json({
       processed: results.length,
       results,
@@ -97,7 +168,7 @@ export async function GET(request: Request) {
   }
 }
 
-async function processCatalogSync(job: typeof commerceJobs.$inferSelect) {
+async function processCatalogSync(job: typeof commerceJobs.$inferSelect): Promise<{ isComplete: boolean; error?: string }> {
   const progress = (job.progress as SyncProgress) ?? { cursor: null, processed: 0 };
 
   const result = await processCatalogSyncJob(
@@ -139,4 +210,6 @@ async function processCatalogSync(job: typeof commerceJobs.$inferSelect) {
       `[Cron] Job ${job.id} continuing. Processed: ${result.progress.processed} products so far`
     );
   }
+
+  return { isComplete: result.isComplete, error: result.error };
 }

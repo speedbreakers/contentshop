@@ -6,6 +6,7 @@ export const baseGenerationInputSchema = z.object({
   product_images: z.array(z.string().min(1)).min(1),
   purpose: z.enum(['catalog', 'ads', 'infographics']).default('catalog'),
   moodboard_id: z.number().int().positive().optional().nullable().default(null),
+  moodboard_strength: z.enum(['strict', 'inspired']).optional().default('inspired'),
   number_of_variations: z.number().int().min(1).max(10).default(1),
   model_image: z.string().optional().default(''),
   background_image: z.string().optional().default(''),

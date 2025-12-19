@@ -29,6 +29,8 @@ export interface GenerationJobMetadata {
   productTitle?: string;
   productCategory?: string;
   extraReferenceImageUrls?: string[];
+  backgroundReferenceImageUrls?: string[];
+  modelReferenceImageUrls?: string[];
   zipUrl?: string;
   creditsId?: number;
   isOverage?: boolean;

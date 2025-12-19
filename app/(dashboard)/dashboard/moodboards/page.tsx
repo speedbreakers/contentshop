@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import useSWR from 'swr';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -10,23 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Badge } from '@/components/ui/badge';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { EllipsisVerticalIcon } from 'lucide-react';
+// Delete moved to moodboard detail page; no AlertDialog needed here.
 
 type Moodboard = {
   id: number;
@@ -59,6 +44,7 @@ function safeJson(value: any, fallback: any) {
 }
 
 export default function MoodboardsPage() {
+    const router = useRouter();
     const {
         data,
         error: swrError,
@@ -82,18 +68,9 @@ export default function MoodboardsPage() {
     }, [data]);
 
     const [open, setOpen] = useState(false);
-    const [editing, setEditing] = useState<Moodboard | null>(null);
-    const [deleteTarget, setDeleteTarget] = useState<Moodboard | null>(null);
 
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
-
-    // Minimal v1 style_profile editor: typography + do_not
-    const [tone, setTone] = useState<'minimal' | 'bold' | 'luxury' | 'playful' | 'technical'>('minimal');
-    const [fontFamily, setFontFamily] = useState('');
-    const [textCase, setTextCase] = useState<'sentence' | 'title' | 'upper'>('sentence');
-    const [rules, setRules] = useState('');
-    const [doNot, setDoNot] = useState('');
 
     const [assetsOpen, setAssetsOpen] = useState(false);
     const [assetsFor, setAssetsFor] = useState<Moodboard | null>(null);
@@ -137,49 +114,11 @@ export default function MoodboardsPage() {
         }));
     }, [uploadsData]);
 
-    const styleProfile = useMemo(() => {
-        return {
-            typography: {
-                tone,
-                font_family: fontFamily.trim(),
-                case: textCase,
-                rules: rules
-                    .split('\n')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-            },
-            do_not: doNot
-                .split('\n')
-                .map((s) => s.trim())
-                .filter(Boolean),
-        };
-    }, [tone, fontFamily, textCase, rules, doNot]);
-
     // Note: list loading is handled by SWR.
 
     function openCreate() {
-        setEditing(null);
         setName('');
         setDescription('');
-        setTone('minimal');
-        setFontFamily('');
-        setTextCase('sentence');
-        setRules('');
-        setDoNot('');
-        setOpen(true);
-    }
-
-    function openEdit(m: Moodboard) {
-        setEditing(m);
-        setName(m.name);
-        setDescription(m.description ?? '');
-        const sp = safeJson(m.styleProfile, {});
-        const typo = safeJson(sp.typography, {});
-        setTone((typo.tone as any) ?? 'minimal');
-        setFontFamily(String(typo.font_family ?? ''));
-        setTextCase((typo.case as any) ?? 'sentence');
-        setRules(Array.isArray(typo.rules) ? typo.rules.join('\n') : '');
-        setDoNot(Array.isArray(sp.do_not) ? sp.do_not.join('\n') : '');
         setOpen(true);
     }
 
@@ -187,12 +126,13 @@ export default function MoodboardsPage() {
         const payload = {
             name: name.trim(),
             description: description.trim() ? description.trim() : null,
-            style_profile: styleProfile,
+            // Keep creation lightweight; typography/assets can be configured on the moodboard page.
+            style_profile: {},
         };
         if (!payload.name) return;
 
-        const res = await fetch(editing ? `/api/moodboards/${editing.id}` : '/api/moodboards', {
-            method: editing ? 'PATCH' : 'POST',
+        const res = await fetch('/api/moodboards', {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         });
@@ -200,13 +140,11 @@ export default function MoodboardsPage() {
         if (!res.ok) throw new Error(json?.error ?? `Save failed (HTTP ${res.status})`);
         setOpen(false);
         await mutateMoodboards();
-    }
 
-    async function removeMoodboard(m: Moodboard) {
-        const res = await fetch(`/api/moodboards/${m.id}`, { method: 'DELETE' });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(json?.error ?? `Delete failed (HTTP ${res.status})`);
-        await mutateMoodboards();
+        // After creating a moodboard, navigate to its dedicated page for asset uploads.
+        if (json?.moodboard?.id) {
+            router.push(`/dashboard/moodboards/${Number(json.moodboard.id)}`);
+        }
     }
 
     async function openAssets(m: Moodboard) {
@@ -311,7 +249,19 @@ export default function MoodboardsPage() {
                   const tone = safeJson(sp.typography, {})?.tone ? String(safeJson(sp.typography, {})?.tone) : null;
                   const previews = Array.isArray(m.previewAssets) ? m.previewAssets.slice(0, 4) : [];
                   return (
-                    <Card key={m.id} className="overflow-hidden">
+                    <Card
+                      key={m.id}
+                      className="overflow-hidden cursor-pointer hover:bg-muted/20 transition-colors"
+                      onClick={() => router.push(`/dashboard/moodboards/${m.id}`)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          router.push(`/dashboard/moodboards/${m.id}`);
+                        }
+                      }}
+                    >
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -326,33 +276,14 @@ export default function MoodboardsPage() {
                               </div>
                             )}
                           </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0"
-                                aria-label="Actions"
-                              >
-                                <EllipsisVerticalIcon className="size-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => openAssets(m)}>
-                                Assets
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => openEdit(m)}>
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-red-600 focus:text-red-600"
-                                onSelect={() => setDeleteTarget(m)}
-                              >
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => router.push(`/dashboard/moodboards/${m.id}`)}
+                          >
+                            Open
+                          </Button>
                         </div>
                         <div className="flex flex-wrap gap-2 mt-3">
                           <Badge variant="outline">{m.assetsCount ?? 0} assets</Badge>
@@ -363,7 +294,7 @@ export default function MoodboardsPage() {
                       <CardContent className="pt-0">
                         <div className="rounded-lg border bg-muted/30 p-2">
                           {previews.length === 0 ? (
-                            <div className="aspect-[2/1] rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                            <div className="h-16 rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground">
                               Add assets to see previews
                             </div>
                           ) : (
@@ -396,9 +327,7 @@ export default function MoodboardsPage() {
                           <div className="text-xs text-muted-foreground">
                             {m.updatedAt ? `Updated ${new Date(String(m.updatedAt)).toLocaleDateString()}` : ''}
                           </div>
-                          <Button variant="secondary" size="sm" onClick={() => openAssets(m)}>
-                            Assets
-                          </Button>
+                          <div className="text-xs text-muted-foreground">Click to open</div>
                         </div>
                       </CardContent>
                     </Card>
@@ -409,11 +338,11 @@ export default function MoodboardsPage() {
           </CardContent>
         </Card>
 
-            {/* Create/Edit dialog */}
+            {/* Create dialog */}
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>{editing ? 'Edit moodboard' : 'New moodboard'}</DialogTitle>
+                        <DialogTitle>New moodboard</DialogTitle>
                     </DialogHeader>
                     <FieldGroup>
                         <Field>
@@ -425,50 +354,6 @@ export default function MoodboardsPage() {
                             <Textarea id="mb-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
                         </Field>
 
-                        <div className="border-t pt-4">
-                            <div className="text-sm font-medium mb-2">Typography (v1)</div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <Field>
-                                    <FieldLabel>Tone</FieldLabel>
-                                    <select
-                                        value={tone}
-                                        onChange={(e) => setTone(e.target.value as any)}
-                                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                                    >
-                                        <option value="minimal">Minimal</option>
-                                        <option value="bold">Bold</option>
-                                        <option value="luxury">Luxury</option>
-                                        <option value="playful">Playful</option>
-                                        <option value="technical">Technical</option>
-                                    </select>
-                                </Field>
-                                <Field>
-                                    <FieldLabel>Font family</FieldLabel>
-                                    <Input value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} placeholder="e.g. Inter" />
-                                </Field>
-                                <Field>
-                                    <FieldLabel>Case</FieldLabel>
-                                    <select
-                                        value={textCase}
-                                        onChange={(e) => setTextCase(e.target.value as any)}
-                                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                                    >
-                                        <option value="sentence">Sentence</option>
-                                        <option value="title">Title</option>
-                                        <option value="upper">Upper</option>
-                                    </select>
-                                </Field>
-                            </div>
-                            <Field className="mt-4">
-                                <FieldLabel>Typography rules (one per line)</FieldLabel>
-                                <Textarea value={rules} onChange={(e) => setRules(e.target.value)} placeholder="e.g. Max 6 words headline" />
-                                <FieldDescription>Used heavily for infographics workflows later.</FieldDescription>
-                            </Field>
-                            <Field className="mt-4">
-                                <FieldLabel>Do not (one per line)</FieldLabel>
-                                <Textarea value={doNot} onChange={(e) => setDoNot(e.target.value)} placeholder="e.g. No neon colors" />
-                            </Field>
-                        </div>
                     </FieldGroup>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setOpen(false)}>
@@ -481,39 +366,7 @@ export default function MoodboardsPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Delete confirm */}
-            <AlertDialog
-                open={deleteTarget !== null}
-                onOpenChange={(o) => {
-                    if (!o) setDeleteTarget(null);
-                }}
-            >
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete moodboard?</AlertDialogTitle>
-                    </AlertDialogHeader>
-                    <div className="text-sm text-muted-foreground">
-                        {deleteTarget ? `This will delete “${deleteTarget.name}”.` : 'This will delete the moodboard.'}
-                    </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setDeleteTarget(null)}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={async () => {
-                                if (!deleteTarget) return;
-                                try {
-                                    await removeMoodboard(deleteTarget);
-                                } catch (e: any) {
-                                    console.error('Delete failed:', e?.message ?? 'Unknown error');
-                                } finally {
-                                    setDeleteTarget(null);
-                                }
-                            }}
-                        >
-                            Delete
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            {/* Delete moved to moodboard detail page */}
 
             {/* Assets dialog */}
             <Dialog open={assetsOpen} onOpenChange={setAssetsOpen}>

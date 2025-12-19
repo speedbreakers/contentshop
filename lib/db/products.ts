@@ -52,6 +52,7 @@ export async function createProductWithDefaultVariant(input: CreateProductInput)
         teamId: input.teamId,
         productId: product.id,
         title: 'Default',
+        imageUrl: input.imageUrl ?? null,
       })
       .returning();
 

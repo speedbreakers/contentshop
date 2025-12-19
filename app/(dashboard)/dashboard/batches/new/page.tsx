@@ -183,6 +183,10 @@ export default function NewBatchPage() {
   const [outputFormat, setOutputFormat] = React.useState<BatchGenerationOutputFormat>("png");
   const [numberOfVariations, setNumberOfVariations] = React.useState(1);
   const [moodboardId, setMoodboardId] = React.useState<number | null>(null);
+  const [moodboardStrength, setMoodboardStrength] = React.useState<"strict" | "inspired">(
+    "inspired"
+  );
+  const [modelEnabled, setModelEnabled] = React.useState(true);
   const [modelImageUrl, setModelImageUrl] = React.useState("");
   const [backgroundImageUrl, setBackgroundImageUrl] = React.useState("");
   const [customInstructions, setCustomInstructions] = React.useState<string[]>([""]);
@@ -369,7 +373,8 @@ export default function NewBatchPage() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        <Checkbox checked={checked} />
+                        {/* <Checkbox checked={checked} /> */}
+                        <input type="checkbox" checked={checked} readOnly className="w-4 h-4" />
                         <div className="relative h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0">
                           {v.imageUrl ? (
                             <Image src={v.imageUrl} alt="" fill sizes="40px" className="object-cover" />
@@ -634,7 +639,11 @@ export default function NewBatchPage() {
             onOutputFormatChange={setOutputFormat}
             moodboardId={moodboardId}
             onMoodboardIdChange={setMoodboardId}
+            moodboardStrength={moodboardStrength}
+            onMoodboardStrengthChange={setMoodboardStrength}
             moodboards={moodboards}
+            modelEnabled={modelEnabled}
+            onModelEnabledChange={setModelEnabled}
             modelImageUrl={modelImageUrl}
             onModelImageUrlChange={setModelImageUrl}
             backgroundImageUrl={backgroundImageUrl}
@@ -701,7 +710,8 @@ export default function NewBatchPage() {
                         input: {
                           purpose,
                           moodboard_id: moodboardId,
-                          model_image: modelImageUrl.trim(),
+                          moodboard_strength: moodboardId ? moodboardStrength : undefined,
+                          model_image: modelEnabled ? modelImageUrl.trim() : "",
                           background_image: backgroundImageUrl.trim(),
                           output_format: outputFormat,
                           aspect_ratio: aspectRatio,

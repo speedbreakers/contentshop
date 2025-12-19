@@ -19,6 +19,7 @@ export type BaseGenerationInput = {
   product_images: string[];
   purpose: GenerationPurpose;
   moodboard_id?: number | null;
+  moodboard_strength?: 'strict' | 'inspired';
   number_of_variations: number;
   model_image?: string;
   background_image?: string;

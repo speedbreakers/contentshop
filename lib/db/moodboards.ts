@@ -121,11 +121,22 @@ export async function softDeleteMoodboard(teamId: number, id: number) {
 }
 
 export async function listMoodboardAssets(teamId: number, moodboardId: number) {
+  return await listMoodboardAssetsByKind(teamId, moodboardId, 'all');
+}
+
+export type MoodboardAssetKind = 'background' | 'model' | 'reference';
+
+export async function listMoodboardAssetsByKind(
+  teamId: number,
+  moodboardId: number,
+  kind: MoodboardAssetKind | 'all' = 'all'
+) {
   const rows = await db
     .select({
       id: moodboardAssets.id,
       moodboardId: moodboardAssets.moodboardId,
       uploadedFileId: moodboardAssets.uploadedFileId,
+      kind: moodboardAssets.kind,
       sortOrder: moodboardAssets.sortOrder,
       createdAt: moodboardAssets.createdAt,
       blobUrl: uploadedFiles.blobUrl,
@@ -135,12 +146,27 @@ export async function listMoodboardAssets(teamId: number, moodboardId: number) {
     })
     .from(moodboardAssets)
     .innerJoin(uploadedFiles, eq(uploadedFiles.id, moodboardAssets.uploadedFileId))
-    .where(and(eq(moodboardAssets.teamId, teamId), eq(moodboardAssets.moodboardId, moodboardId)))
+    .where(
+      and(
+        eq(moodboardAssets.teamId, teamId),
+        eq(moodboardAssets.moodboardId, moodboardId),
+        kind === 'all' ? sql`true` : eq(moodboardAssets.kind, kind)
+      )
+    )
     .orderBy(asc(moodboardAssets.sortOrder), asc(moodboardAssets.id));
   return rows;
 }
 
 export async function addMoodboardAssets(teamId: number, moodboardId: number, uploadedFileIds: number[]) {
+  return await addMoodboardAssetsWithKind(teamId, moodboardId, uploadedFileIds, 'reference');
+}
+
+export async function addMoodboardAssetsWithKind(
+  teamId: number,
+  moodboardId: number,
+  uploadedFileIds: number[],
+  kind: MoodboardAssetKind
+) {
   const ids = Array.from(new Set(uploadedFileIds.filter((n) => Number.isFinite(n))));
   if (ids.length === 0) return [];
   const now = new Date();
@@ -152,10 +178,13 @@ export async function addMoodboardAssets(teamId: number, moodboardId: number, up
         teamId,
         moodboardId,
         uploadedFileId: fid,
+        kind,
         sortOrder: idx,
         createdAt: now,
       }))
     )
+    // With the unique index on (moodboard_id, uploaded_file_id, kind), this only skips exact duplicates
+    // within the same section, while allowing the same file to exist in multiple sections.
     .onConflictDoNothing()
     .returning();
   return inserted;

@@ -8,7 +8,7 @@ import {
   getGenerationWorkflow,
   resolveGenerationWorkflowKey,
 } from '@/lib/workflows/generation';
-import { getMoodboardById, listMoodboardAssets } from '@/lib/db/moodboards';
+import { getMoodboardById, listMoodboardAssetsByKind } from '@/lib/db/moodboards';
 import { signDownloadToken } from '@/lib/uploads/signing';
 import { createGenerationJob, countActiveGenerationJobsForTeam } from '@/lib/db/generation-jobs';
 
@@ -94,6 +94,7 @@ export async function POST(
   const workflowInput = workflowOk.data;
   const schemaKey = workflow.key;
   const numberOfVariations = workflowInput.number_of_variations ?? 1;
+  const moodboardStrength = workflowInput.moodboard_strength ?? 'inspired';
 
   // Optional moodboard enrichment (style profile + reference images)
   let moodboard: {
@@ -102,6 +103,8 @@ export async function POST(
     styleProfile: Record<string, unknown>;
     assetFileIds: number[];
     assetUrls: string[];
+    backgroundAssetUrls: string[];
+    modelAssetUrls: string[];
     styleAppendix: string;
   } | null = null;
 
@@ -109,9 +112,19 @@ export async function POST(
     const mb = await getMoodboardById(team.id, Number(workflowInput.moodboard_id));
     if (!mb) return Response.json({ error: 'Moodboard not found' }, { status: 404 });
 
-    const assets = await listMoodboardAssets(team.id, mb.id);
+    const backgroundAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'background');
+    const modelAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'model');
+    const referenceAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'reference');
     const exp = Date.now() + 1000 * 60 * 60;
-    const assetUrls = assets.map((a) => {
+    const backgroundAssetUrls = backgroundAssets.map((a) => {
+      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
+      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
+    });
+    const modelAssetUrls = modelAssets.map((a) => {
+      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
+      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
+    });
+    const assetUrls = referenceAssets.map((a) => {
       const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
       return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
     });
@@ -134,8 +147,14 @@ export async function POST(
       id: mb.id,
       name: mb.name,
       styleProfile: profile,
-      assetFileIds: assets.map((a) => a.uploadedFileId),
+      assetFileIds: [
+        ...backgroundAssets.map((a) => a.uploadedFileId),
+        ...modelAssets.map((a) => a.uploadedFileId),
+        ...referenceAssets.map((a) => a.uploadedFileId),
+      ],
       assetUrls,
+      backgroundAssetUrls,
+      modelAssetUrls,
       styleAppendix,
     };
   }
@@ -211,6 +230,16 @@ export async function POST(
     });
   });
 
+  // Moodboard strictness:
+  // - strict: attach moodboard images as references
+  // - inspired: do not attach moodboard images; only use style_appendix in prompt
+  const backgroundReferenceImageUrls =
+    moodboard && moodboardStrength === 'strict' ? (moodboard as any).backgroundAssetUrls?.slice(0, 3) ?? [] : [];
+  const modelReferenceImageUrls =
+    moodboard && moodboardStrength === 'strict' ? (moodboard as any).modelAssetUrls?.slice(0, 3) ?? [] : [];
+
+  const extraReferenceImageUrls = [...backgroundReferenceImageUrls, ...modelReferenceImageUrls];
+
   // Create a job instead of processing synchronously
   const job = await createGenerationJob(team.id, {
     productId: pid,
@@ -233,7 +262,9 @@ export async function POST(
       numberOfVariations,
       prompts, // Store array of prompts instead of single prompt
       moodboardId: moodboard?.id ?? null,
-      extraReferenceImageUrls: moodboard?.assetUrls ?? [],
+      extraReferenceImageUrls,
+      backgroundReferenceImageUrls,
+      modelReferenceImageUrls,
       requestOrigin,
       authCookie: request.headers.get('cookie'),
       productTitle: product.title,
