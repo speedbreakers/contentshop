@@ -315,6 +315,8 @@ export async function POST(request: Request) {
         isOverage: creditCheck.isOverage,
         targetSetId: perVariantFolder.id,
         sharedSetId: sharedFolder.id,
+        // Store whether model should be included (derived from model_image being non-empty)
+        modelEnabled: Boolean(validatedInput.model_image && validatedInput.model_image.trim() !== ''),
       } as any,
     });
     if (!job) return Response.json({ error: 'Failed to create job' }, { status: 500 });

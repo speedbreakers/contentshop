@@ -272,6 +272,8 @@ export async function POST(
       // Store credit info for reference
       creditsId: creditCheck.creditsId,
       isOverage: creditCheck.isOverage,
+      // Store whether model should be included (derived from model_image being non-empty)
+      modelEnabled: Boolean(workflowInput.model_image && workflowInput.model_image.trim() !== ''),
     },
   });
 

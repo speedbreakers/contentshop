@@ -42,6 +42,8 @@ export interface GenerationJobMetadata {
   retryOfJobId?: number | null;
   /** Retry attempt counter (1 for first retry). */
   retryAttempt?: number;
+  /** Whether a model should be included in the generation (separate from model_image URL). */
+  modelEnabled?: boolean;
   [key: string]: unknown;
 }
 
