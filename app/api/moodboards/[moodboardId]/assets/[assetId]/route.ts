@@ -1,5 +1,6 @@
 import { getTeamForUser } from '@/lib/db/queries';
 import { getMoodboardById, removeMoodboardAsset } from '@/lib/db/moodboards';
+import { recomputeMoodboardAssetSummaries } from '@/lib/moodboards/analysis';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -23,6 +24,21 @@ export async function DELETE(
 
   const deleted = await removeMoodboardAsset(team.id, mid, aid);
   if (!deleted) return Response.json({ error: 'Not found' }, { status: 404 });
+
+  // Best-effort analysis: update moodboard style_profile summaries after removing assets.
+  // Keep failures non-fatal for UX.
+  try {
+    const requestOrigin = new URL(_request.url).origin;
+    const authCookie = _request.headers.get('cookie');
+    await recomputeMoodboardAssetSummaries({
+      teamId: team.id,
+      moodboardId: mid,
+      requestOrigin,
+      authCookie,
+    });
+  } catch {
+    // ignore
+  }
 
   return Response.json({ ok: true });
 }

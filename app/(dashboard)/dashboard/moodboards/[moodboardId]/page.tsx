@@ -38,7 +38,7 @@ type UploadItem = {
     url: string;
 };
 
-type MoodboardAssetKind = "background" | "model";
+type MoodboardAssetKind = "background" | "model" | "reference_positive" | "reference_negative";
 
 type MoodboardAsset = {
     id: number;
@@ -89,6 +89,13 @@ export default function MoodboardDetailPage() {
     const router = useRouter();
     const moodboardId = Number(params.moodboardId);
 
+    const [assetsModalOpen, setAssetsModalOpen] = React.useState(false);
+    const [assetsKind, setAssetsKind] = React.useState<MoodboardAssetKind>("background");
+    const [selectedUploadIds, setSelectedUploadIds] = React.useState<Record<number, boolean>>({});
+    const [addingAssets, setAddingAssets] = React.useState(false);
+    const [uploadingAssets, setUploadingAssets] = React.useState(false);
+    const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
+
     const { data: moodboardData, isLoading: loadingMoodboard, mutate: mutateMoodboard } = useSWR<{ moodboard: any }>(
         Number.isFinite(moodboardId) ? `/api/moodboards/${moodboardId}` : null,
         fetchJson
@@ -111,8 +118,25 @@ export default function MoodboardDetailPage() {
         Number.isFinite(moodboardId) ? `/api/moodboards/${moodboardId}/assets?kind=model` : null,
         fetchJson
     );
+    const { data: posRefData, isLoading: loadingPosRefs, mutate: mutatePosRefs } = useSWR<{ items: any[] }>(
+        Number.isFinite(moodboardId) ? `/api/moodboards/${moodboardId}/assets?kind=reference_positive` : null,
+        fetchJson
+    );
+    const { data: negRefData, isLoading: loadingNegRefs, mutate: mutateNegRefs } = useSWR<{ items: any[] }>(
+        Number.isFinite(moodboardId) ? `/api/moodboards/${moodboardId}/assets?kind=reference_negative` : null,
+        fetchJson
+    );
+    const uploadsKind =
+        assetsKind === "background"
+            ? "moodboard_background"
+            : assetsKind === "model"
+                ? "moodboard_model"
+                : assetsKind === "reference_positive"
+                    ? "moodboard_reference_positive"
+                    : "moodboard_reference_negative";
+
     const { data: uploadsData, isLoading: loadingUploads, mutate: mutateUploads } = useSWR<{ items: any[] }>(
-        Number.isFinite(moodboardId) ? "/api/uploads?kind=moodboard" : null,
+        assetsModalOpen && Number.isFinite(moodboardId) ? `/api/uploads?kind=${uploadsKind}` : null,
         fetchJson
     );
 
@@ -139,6 +163,30 @@ export default function MoodboardDetailPage() {
             url: String(a.url),
         }));
     }, [modelData]);
+
+    const positiveRefs: MoodboardAsset[] = React.useMemo(() => {
+        const list = Array.isArray(posRefData?.items) ? posRefData!.items : [];
+        return list.map((a: any) => ({
+            id: Number(a.id),
+            uploadedFileId: Number(a.uploadedFileId),
+            kind: (a.kind as any) ?? "reference_positive",
+            originalName: a.originalName ?? null,
+            contentType: a.contentType ?? null,
+            url: String(a.url),
+        }));
+    }, [posRefData]);
+
+    const negativeRefs: MoodboardAsset[] = React.useMemo(() => {
+        const list = Array.isArray(negRefData?.items) ? negRefData!.items : [];
+        return list.map((a: any) => ({
+            id: Number(a.id),
+            uploadedFileId: Number(a.uploadedFileId),
+            kind: (a.kind as any) ?? "reference_negative",
+            originalName: a.originalName ?? null,
+            contentType: a.contentType ?? null,
+            url: String(a.url),
+        }));
+    }, [negRefData]);
 
     const uploads: UploadItem[] = React.useMemo(() => {
         const list = Array.isArray(uploadsData?.items) ? uploadsData!.items : [];
@@ -168,13 +216,6 @@ export default function MoodboardDetailPage() {
     const [typoDoNot, setTypoDoNot] = React.useState<string>("");
     const [savingTypography, setSavingTypography] = React.useState(false);
 
-    const [assetsModalOpen, setAssetsModalOpen] = React.useState(false);
-    const [assetsKind, setAssetsKind] = React.useState<MoodboardAssetKind>("background");
-    const [selectedUploadIds, setSelectedUploadIds] = React.useState<Record<number, boolean>>({});
-    const [addingAssets, setAddingAssets] = React.useState(false);
-  const [uploadingAssets, setUploadingAssets] = React.useState(false);
-  const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
-
     React.useEffect(() => {
         if (!moodboard) return;
         setEditName(moodboard.name);
@@ -194,7 +235,14 @@ export default function MoodboardDetailPage() {
 
     function openAssetsModal(kind: MoodboardAssetKind) {
         setAssetsKind(kind);
-        const current = (kind === "background" ? backgrounds : models) ?? [];
+        const current =
+            kind === "background"
+                ? backgrounds
+                : kind === "model"
+                    ? models
+                    : kind === "reference_positive"
+                        ? positiveRefs
+                        : negativeRefs;
         const nextSelected: Record<number, boolean> = {};
         for (const a of current) nextSelected[a.uploadedFileId] = true;
         setSelectedUploadIds(nextSelected);
@@ -205,7 +253,14 @@ export default function MoodboardDetailPage() {
         if (!Number.isFinite(moodboardId)) return;
         setAddingAssets(true);
         try {
-            const currentAssets = assetsKind === "background" ? backgrounds : models;
+            const currentAssets =
+                assetsKind === "background"
+                    ? backgrounds
+                    : assetsKind === "model"
+                        ? models
+                        : assetsKind === "reference_positive"
+                            ? positiveRefs
+                            : negativeRefs;
             const desiredIds = selectedIds;
             const desiredSet = new Set(desiredIds);
             const currentSet = new Set(currentAssets.map((a) => a.uploadedFileId));
@@ -233,7 +288,7 @@ export default function MoodboardDetailPage() {
                 if (!res.ok) throw new Error(j?.error ?? `Add failed (HTTP ${res.status})`);
             }
 
-            await Promise.all([mutateBg(), mutateModels(), mutateMoodboard()]);
+            await Promise.all([mutateBg(), mutateModels(), mutatePosRefs(), mutateNegRefs(), mutateMoodboard()]);
             setAssetsModalOpen(false);
         } finally {
             setAddingAssets(false);
@@ -248,7 +303,7 @@ export default function MoodboardDetailPage() {
       const uploadedIds: number[] = [];
       for (const file of Array.from(files)) {
         const fd = new FormData();
-        fd.set("kind", "moodboard");
+        fd.set("kind", uploadsKind);
         fd.set("file", file);
         const res = await fetch("/api/uploads", { method: "POST", body: fd });
         const json = await res.json().catch(() => null);
@@ -336,79 +391,48 @@ export default function MoodboardDetailPage() {
     }
 
     return (
-        <div className="space-y-4 mt-8">
-            <div className="text-sm text-muted-foreground">
+        <section className="flex-1 p-4 pb-0 lg:p-8 lg:pb-0">
+            <div className="text-sm text-muted-foreground mb-2">
                 <Link href="/dashboard/moodboards" className="hover:underline">
                     Moodboards
                 </Link>{" "}
                 / <span className="text-foreground">{moodboard?.name ?? "…"}</span>
             </div>
-            <div className="flex items-center justify-between gap-3">
-                <div className="text-2xl font-medium">{moodboard?.name ?? "Moodboard"}</div>
+            <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                    <h1 className="text-lg lg:text-2xl font-medium">{moodboard?.name ?? "Moodboard"}</h1>
+                    <p className="text-sm text-muted-foreground">
+                        Configure typography and reference images used during generation.
+                    </p>
+                </div>
 
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setEditOpen(true)} disabled={!moodboard}>
+                    <Button size="sm" variant="outline" onClick={() => setEditOpen(true)} disabled={!moodboard}>
                         <Pencil className="h-4 w-4 mr-2" />
                         Edit
                     </Button>
-                    <Button variant="destructive" onClick={() => setDeleteOpen(true)} disabled={!moodboard}>
+                    <Button size="sm" variant="destructive" onClick={() => setDeleteOpen(true)} disabled={!moodboard}>
                         <Trash2 className="h-4 w-4 mr-2" />
                         Delete
                     </Button>
                 </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
 
-            <div className="grid grid-cols-1 gap-4">
-                <Card className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <div className="font-medium">Typography Details</div>
-                            <div className="text-sm text-muted-foreground">These guide tone, font, and text rules.</div>
-                        </div>
-                        <Button variant="outline" onClick={() => setEditTypographyOpen(true)} disabled={!moodboard}>
-                            <Pencil className="h-4 w-4 mr-2" />
-                            Edit
-                        </Button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                        <div>
-                            <div className="text-muted-foreground">Tone</div>
-                            <div>{String(typography?.tone ?? "—")}</div>
-                        </div>
-                        <div>
-                            <div className="text-muted-foreground">Font family</div>
-                            <div>{String(typography?.font_family ?? "—")}</div>
-                        </div>
-                        <div>
-                            <div className="text-muted-foreground">Case</div>
-                            <div>{String(typography?.case ?? "—")}</div>
-                        </div>
-                        <div>
-                            <div className="text-muted-foreground">Rules</div>
-                            <div className="whitespace-pre-wrap">{Array.isArray(typography?.rules) ? typography.rules.join("\n") : "—"}</div>
-                        </div>
-                        <div className="md:col-span-2">
-                            <div className="text-muted-foreground">Do not</div>
-                            <div className="whitespace-pre-wrap">{doNotList.length ? doNotList.join("\n") : "—"}</div>
-                        </div>
-                    </div>
-                </Card>
-
-                <Card className="p-4">
+                <Card className="p-3">
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <div className="font-medium">Backgrounds</div>
-                            <div className="text-sm text-muted-foreground">Background references for strict moodboard mode.</div>
+                            <div className="text-xs text-muted-foreground">Background references for strict moodboard mode.</div>
                         </div>
-                        <Button variant="outline" onClick={() => openAssetsModal("background")} disabled={!moodboard}>
+                        <Button size="sm" variant="outline" onClick={() => openAssetsModal("background")} disabled={!moodboard}>
                             <Pencil className="h-4 w-4 mr-2" />
                             Edit
                         </Button>
                     </div>
 
-                    <div className="mt-4">
+                    <div className="mt-3">
                         {loadingBg ? (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -419,19 +443,19 @@ export default function MoodboardDetailPage() {
                     </div>
                 </Card>
 
-                <Card className="p-4">
+                <Card className="p-3">
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <div className="font-medium">Models</div>
-                            <div className="text-sm text-muted-foreground">Model references for strict moodboard mode.</div>
+                            <div className="text-xs text-muted-foreground">Model references for strict moodboard mode.</div>
                         </div>
-                        <Button variant="outline" onClick={() => openAssetsModal("model")} disabled={!moodboard}>
+                        <Button size="sm" variant="outline" onClick={() => openAssetsModal("model")} disabled={!moodboard}>
                             <Pencil className="h-4 w-4 mr-2" />
                             Edit
                         </Button>
                     </div>
 
-                    <div className="mt-4">
+                    <div className="mt-3">
                         {loadingModels ? (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -441,7 +465,99 @@ export default function MoodboardDetailPage() {
                         )}
                     </div>
                 </Card>
+
+                <Card className="p-3">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <div className="font-medium">Positive style references</div>
+                            <div className="text-xs text-muted-foreground">
+                                Images that represent the target style to emulate during generation.
+                            </div>
+                            <div className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap">
+                                {String(moodboard?.styleProfile?.reference_positive_summary ?? "") || "Summary will appear after saving assets."}
+                            </div>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => openAssetsModal("reference_positive")} disabled={!moodboard}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit
+                        </Button>
+                    </div>
+
+                    <div className="mt-3">
+                        {loadingPosRefs ? (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                            </div>
+                        ) : (
+                            <AssetGrid items={positiveRefs} emptyLabel="No positive reference assets yet." size="sm" />
+                        )}
+                    </div>
+                </Card>
+
+                <Card className="p-3">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <div className="font-medium">Negative style references</div>
+                            <div className="text-xs text-muted-foreground">
+                                Images that represent styles to avoid during generation (strict mode only).
+                            </div>
+                            <div className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap">
+                                {String(moodboard?.styleProfile?.reference_negative_summary ?? "") || "Summary will appear after saving assets."}
+                            </div>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => openAssetsModal("reference_negative")} disabled={!moodboard}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit
+                        </Button>
+                    </div>
+
+                    <div className="mt-3">
+                        {loadingNegRefs ? (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                            </div>
+                        ) : (
+                            <AssetGrid items={negativeRefs} emptyLabel="No negative reference assets yet." size="sm" />
+                        )}
+                    </div>
+                </Card>
             </div>
+
+            <Card className="p-3 mt-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <div className="font-medium">Typography Details</div>
+                        <div className="text-xs text-muted-foreground">These guide tone, font, and text rules.</div>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => setEditTypographyOpen(true)} disabled={!moodboard}>
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Edit
+                    </Button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm mt-3">
+                    <div>
+                        <div className="text-muted-foreground">Tone</div>
+                        <div>{String(typography?.tone ?? "—")}</div>
+                    </div>
+                    <div>
+                        <div className="text-muted-foreground">Font family</div>
+                        <div>{String(typography?.font_family ?? "—")}</div>
+                    </div>
+                    <div>
+                        <div className="text-muted-foreground">Case</div>
+                        <div>{String(typography?.case ?? "—")}</div>
+                    </div>
+                    <div>
+                        <div className="text-muted-foreground">Rules</div>
+                        <div className="whitespace-pre-wrap">{Array.isArray(typography?.rules) ? typography.rules.join("\n") : "—"}</div>
+                    </div>
+                    <div className="md:col-span-2">
+                        <div className="text-muted-foreground">Do not</div>
+                        <div className="whitespace-pre-wrap">{doNotList.length ? doNotList.join("\n") : "—"}</div>
+                    </div>
+                </div>
+            </Card>
 
             {loadingMoodboard && !moodboard ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
 
@@ -532,11 +648,19 @@ export default function MoodboardDetailPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Background/model assets edit */}
+            {/* Assets edit */}
             <Dialog open={assetsModalOpen} onOpenChange={setAssetsModalOpen}>
                 <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>{assetsKind === "background" ? "Edit backgrounds" : "Edit models"}</DialogTitle>
+                        <DialogTitle>
+                            {assetsKind === "background"
+                                ? "Edit backgrounds"
+                                : assetsKind === "model"
+                                    ? "Edit models"
+                                    : assetsKind === "reference_positive"
+                                        ? "Edit positive references"
+                                        : "Edit negative references"}
+                        </DialogTitle>
                     </DialogHeader>
 
                     <div className="space-y-4">
@@ -648,7 +772,7 @@ export default function MoodboardDetailPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+        </section>
     );
 }
 

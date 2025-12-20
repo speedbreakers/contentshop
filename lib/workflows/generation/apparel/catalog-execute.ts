@@ -19,7 +19,12 @@ export async function executeApparelCatalogWorkflow(args: {
     name: string;
     styleProfile: Record<string, unknown>;
     assetFileIds: number[];
-    assetUrls: string[];
+    assetUrls: string[]; // backward-compat: positive refs
+    positiveAssetUrls: string[];
+    negativeAssetUrls: string[];
+    positiveSummary: string;
+    negativeSummary: string;
+    strength: 'strict' | 'inspired';
     styleAppendix: string;
   } | null;
   schemaKey: string; // apparel.catalog.v1
@@ -109,6 +114,13 @@ export async function executeApparelCatalogWorkflow(args: {
     classification.backCloseUrl,
   ].filter(Boolean) as string[];
 
+  const moodboardStrength = args.moodboard?.strength ?? 'inspired';
+  const positiveMoodboardImageUrls = (args.moodboard?.positiveAssetUrls ?? args.moodboard?.assetUrls ?? []).filter(
+    Boolean
+  );
+  const negativeMoodboardImageUrls =
+    moodboardStrength === 'strict' ? (args.moodboard?.negativeAssetUrls ?? []).filter(Boolean) : [];
+
   const { outputs, finalPrompt } = await generateApparelCatalogImages({
     requestOrigin: args.requestOrigin,
     authCookie: args.authCookie,
@@ -117,8 +129,11 @@ export async function executeApparelCatalogWorkflow(args: {
     generationId: gen.id,
     numberOfVariations: args.numberOfVariations,
     garmentImageUrls,
-    moodboardImageUrls: args.moodboard?.assetUrls ?? [],
+    positiveMoodboardImageUrls,
+    negativeMoodboardImageUrls,
     styleAppendix: args.moodboard?.styleAppendix ?? '',
+    positiveReferenceSummary: args.moodboard?.positiveSummary ?? '',
+    negativeReferenceSummary: moodboardStrength === 'strict' ? args.moodboard?.negativeSummary ?? '' : '',
     analysis,
     background_description: background.background_description,
     custom_instructions: customInstructions,

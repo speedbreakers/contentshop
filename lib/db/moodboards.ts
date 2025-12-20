@@ -124,7 +124,7 @@ export async function listMoodboardAssets(teamId: number, moodboardId: number) {
   return await listMoodboardAssetsByKind(teamId, moodboardId, 'all');
 }
 
-export type MoodboardAssetKind = 'background' | 'model' | 'reference';
+export type MoodboardAssetKind = 'background' | 'model' | 'reference_positive' | 'reference_negative';
 
 export async function listMoodboardAssetsByKind(
   teamId: number,
@@ -158,7 +158,7 @@ export async function listMoodboardAssetsByKind(
 }
 
 export async function addMoodboardAssets(teamId: number, moodboardId: number, uploadedFileIds: number[]) {
-  return await addMoodboardAssetsWithKind(teamId, moodboardId, uploadedFileIds, 'reference');
+  return await addMoodboardAssetsWithKind(teamId, moodboardId, uploadedFileIds, 'reference_positive');
 }
 
 export async function addMoodboardAssetsWithKind(

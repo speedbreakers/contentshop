@@ -16,8 +16,11 @@ export async function generateApparelCatalogImages(args: {
   generationId: number;
   numberOfVariations: number;
   garmentImageUrls: string[]; // typically front/back (masked if available)
-  moodboardImageUrls?: string[];
+  positiveMoodboardImageUrls?: string[];
+  negativeMoodboardImageUrls?: string[];
   styleAppendix?: string;
+  positiveReferenceSummary?: string;
+  negativeReferenceSummary?: string;
   analysis: GarmentAnalysis;
   background_description: string;
   custom_instructions: string;
@@ -50,6 +53,12 @@ export async function generateApparelCatalogImages(args: {
       `Background: ${args.background_description}`,
       'Lighting: soft even studio lighting, realistic soft shadow.',
       args.styleAppendix?.trim() ? `Brand style: ${args.styleAppendix.trim()}` : '',
+      args.positiveReferenceSummary?.trim()
+        ? `Style references (positive): ${args.positiveReferenceSummary.trim()}`
+        : '',
+      args.negativeReferenceSummary?.trim()
+        ? `Avoid these styles (negative references): ${args.negativeReferenceSummary.trim()}`
+        : '',
       analysisBits,
       args.custom_instructions?.trim() ? `Additional instructions: ${args.custom_instructions.trim()}` : '',
     ]
@@ -58,9 +67,11 @@ export async function generateApparelCatalogImages(args: {
 
   const outputs: GeneratedOutput[] = [];
 
-  const moodboardRefs = Array.isArray(args.moodboardImageUrls) ? args.moodboardImageUrls : [];
+  const positiveRefs = Array.isArray(args.positiveMoodboardImageUrls) ? args.positiveMoodboardImageUrls : [];
+  const negativeRefs = Array.isArray(args.negativeMoodboardImageUrls) ? args.negativeMoodboardImageUrls : [];
+
   const moodboardImgs = await Promise.all(
-    moodboardRefs
+    [...positiveRefs, ...negativeRefs]
       .filter(Boolean)
       .map((u) => resolveUrl(args.requestOrigin, String(u)))
       .map(async (u) => {

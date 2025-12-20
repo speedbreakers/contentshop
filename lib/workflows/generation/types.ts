@@ -48,7 +48,12 @@ export type GenerationWorkflow<TInput extends BaseGenerationInput = BaseGenerati
       name: string;
       styleProfile: Record<string, unknown>;
       assetFileIds: number[];
-      assetUrls: string[];
+      assetUrls: string[]; // backward-compat: positive refs
+      positiveAssetUrls: string[];
+      negativeAssetUrls: string[];
+      positiveSummary: string;
+      negativeSummary: string;
+      strength: 'strict' | 'inspired';
       styleAppendix: string;
     } | null;
     input: TInput;

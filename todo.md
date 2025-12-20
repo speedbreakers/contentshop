@@ -15,6 +15,7 @@ Product:
 - generating 10 images results in timeout on the frontend - Done
 - if the user gives custom instructions for every generation in one text how do you handle that - Done
 - moodboard strictness - Done
+- added references to moodboard - Done
 
 
 - aspect ratio setting
@@ -32,6 +33,7 @@ Product:
 - applying moodboard properly
 - remove home page
 - batch processing bugs
+- show unfinished jobs on variant page on reload
 
 UI Issues:
 - flow for storefronts is not smooth

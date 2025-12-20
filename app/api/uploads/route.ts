@@ -3,7 +3,16 @@ import { z } from 'zod';
 import { getTeamForUser } from '@/lib/db/queries';
 import { createUploadedFile, listUploadedFiles, type UploadKind } from '@/lib/db/uploads';
 
-const kindSchema = z.enum(['garment', 'product', 'model', 'background', 'moodboard']);
+const kindSchema = z.enum([
+  'garment',
+  'product',
+  'model',
+  'background',
+  'moodboard_background',
+  'moodboard_model',
+  'moodboard_reference_positive',
+  'moodboard_reference_negative',
+]);
 
 function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 120) || 'upload';

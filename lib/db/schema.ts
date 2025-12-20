@@ -91,7 +91,7 @@ export const uploadedFiles = pgTable(
       .notNull()
       .references(() => teams.id),
 
-    kind: varchar('kind', { length: 30 }).notNull(), // garment|product|model|background|moodboard
+    kind: varchar('kind', { length: 30 }).notNull(), // garment|product|model|background|moodboard_background|moodboard_model|moodboard_reference_positive|moodboard_reference_negative|shopify_import
 
     // Vercel Blob result fields
     pathname: text('pathname').notNull(),
@@ -152,7 +152,7 @@ export const moodboardAssets = pgTable(
     uploadedFileId: integer('uploaded_file_id')
       .notNull()
       .references(() => uploadedFiles.id),
-    kind: varchar('kind', { length: 20 }).notNull().default('reference'),
+    kind: varchar('kind', { length: 20 }).notNull().default('reference_positive'),
 
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),

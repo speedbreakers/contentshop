@@ -79,7 +79,7 @@ export default function MoodboardsPage() {
     const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
     const assetsKey = assetsOpen && assetsFor ? `/api/moodboards/${assetsFor.id}/assets` : null;
-    const uploadsKey = assetsOpen ? '/api/uploads?kind=moodboard' : null;
+    const uploadsKey = assetsOpen ? '/api/uploads?kind=moodboard_reference_positive' : null;
 
     const {
         data: assetsData,
@@ -181,7 +181,7 @@ export default function MoodboardsPage() {
             const uploadedIds: number[] = [];
             for (const file of Array.from(files)) {
                 const fd = new FormData();
-                fd.set('kind', 'moodboard');
+                fd.set('kind', 'moodboard_reference_positive');
                 fd.set('file', file);
                 const res = await fetch('/api/uploads', { method: 'POST', body: fd });
                 const json = await res.json().catch(() => null);

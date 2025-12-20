@@ -1,13 +1,21 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from './drizzle';
 import { uploadedFiles } from './schema';
 
-export type UploadKind = 'garment' | 'product' | 'model' | 'background' | 'moodboard' | 'shopify_import';
+export type UploadKind =
+  | 'garment'
+  | 'product'
+  | 'model'
+  | 'background'
+  | 'moodboard_background'
+  | 'moodboard_model'
+  | 'moodboard_reference_positive'
+  | 'moodboard_reference_negative'
+  | 'shopify_import';
 
 export async function listUploadedFiles(teamId: number, kind?: UploadKind) {
-  const where = kind
-    ? and(eq(uploadedFiles.teamId, teamId), eq(uploadedFiles.kind, kind))
-    : eq(uploadedFiles.teamId, teamId);
+  const where =
+    kind ? and(eq(uploadedFiles.teamId, teamId), eq(uploadedFiles.kind, kind)) : eq(uploadedFiles.teamId, teamId);
 
   return await db
     .select()

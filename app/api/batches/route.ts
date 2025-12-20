@@ -96,6 +96,10 @@ export async function POST(request: Request) {
   // Optional moodboard enrichment shared across jobs.
   const settingsInput = (parsed.data.settings.input ?? {}) as Record<string, unknown>;
   const numberOfVariations = parsed.data.settings.numberOfVariations;
+  const moodboardStrength =
+    settingsInput.moodboard_strength === 'strict' || settingsInput.moodboard_strength === 'inspired'
+      ? (settingsInput.moodboard_strength as 'strict' | 'inspired')
+      : 'inspired';
 
   let moodboard: {
     id: number;
@@ -103,6 +107,11 @@ export async function POST(request: Request) {
     styleProfile: Record<string, unknown>;
     assetFileIds: number[];
     assetUrls: string[];
+    positiveAssetUrls: string[];
+    negativeAssetUrls: string[];
+    positiveSummary: string;
+    negativeSummary: string;
+    strength: 'strict' | 'inspired';
     backgroundAssetUrls: string[];
     modelAssetUrls: string[];
     styleAppendix: string;
@@ -115,7 +124,8 @@ export async function POST(request: Request) {
 
     const backgroundAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'background');
     const modelAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'model');
-    const referenceAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'reference');
+    const positiveReferenceAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'reference_positive');
+    const negativeReferenceAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'reference_negative');
     const exp = Date.now() + 1000 * 60 * 60;
     const backgroundAssetUrls = backgroundAssets.map((a) => {
       const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
@@ -125,7 +135,11 @@ export async function POST(request: Request) {
       const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
       return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
     });
-    const assetUrls = referenceAssets.map((a) => {
+    const positiveAssetUrls = positiveReferenceAssets.map((a) => {
+      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
+      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
+    });
+    const negativeAssetUrls = negativeReferenceAssets.map((a) => {
       const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
       return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
     });
@@ -151,9 +165,15 @@ export async function POST(request: Request) {
       assetFileIds: [
         ...backgroundAssets.map((a) => a.uploadedFileId),
         ...modelAssets.map((a) => a.uploadedFileId),
-        ...referenceAssets.map((a) => a.uploadedFileId),
+        ...positiveReferenceAssets.map((a) => a.uploadedFileId),
+        ...negativeReferenceAssets.map((a) => a.uploadedFileId),
       ],
-      assetUrls,
+      assetUrls: positiveAssetUrls,
+      positiveAssetUrls,
+      negativeAssetUrls,
+      positiveSummary: String((profile as any).reference_positive_summary ?? ''),
+      negativeSummary: String((profile as any).reference_negative_summary ?? ''),
+      strength: moodboardStrength,
       backgroundAssetUrls,
       modelAssetUrls,
       styleAppendix,
