@@ -92,6 +92,30 @@ export async function listGenerationJobs(
 }
 
 /**
+ * List active (unfinished) generation jobs for a variant.
+ * Used by the variant page to restore in-progress jobs after reload.
+ */
+export async function listActiveGenerationJobsForVariant(
+  teamId: number,
+  variantId: number,
+  options?: { limit?: number }
+) {
+  const limit = options?.limit ?? 10;
+  return await db
+    .select()
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.teamId, teamId),
+        eq(generationJobs.variantId, variantId),
+        inArray(generationJobs.status, ['queued', 'running'])
+      )
+    )
+    .orderBy(desc(generationJobs.createdAt))
+    .limit(limit);
+}
+
+/**
  * Get a generation job by ID
  */
 export async function getGenerationJobById(teamId: number, id: number) {

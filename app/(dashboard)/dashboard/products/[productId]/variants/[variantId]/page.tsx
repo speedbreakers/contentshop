@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { fetchJson } from '@/lib/swr/fetcher';
@@ -312,6 +312,7 @@ export default function VariantAssetsPage() {
   const [fetchMessage, setFetchMessage] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [activeJobData, setActiveJobData] = useState<GenerationJobData | null>(null);
+  const restoredActiveJobRef = useRef(false);
 
   const [deleteId, setDeleteId] = useState<{ kind: 'set' | 'setItem'; id: number; setId?: number } | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -495,6 +496,116 @@ export default function VariantAssetsPage() {
       .map((x) => `${optById.get(x.productOptionId) ?? 'Option'}=${x.value}`)
       .join(', ');
   }
+
+  // Restore unfinished generation jobs after a reload.
+  // This re-creates draft placeholders and re-attaches polling to the newest queued/running job.
+  useEffect(() => {
+    if (activeJob) return;
+    if (restoredActiveJobRef.current) return;
+    if (!defaultSetId) return;
+    if (!init || initLoading) return;
+    if (!Number.isFinite(productId) || !Number.isFinite(variantId)) return;
+
+    restoredActiveJobRef.current = true;
+
+    (async () => {
+      try {
+        const j = await fetchJson<{ items: any[] }>(
+          `/api/products/${productId}/variants/${variantId}/generation-jobs`
+        );
+        const items = Array.isArray(j?.items) ? j.items : [];
+        const job = items[0];
+        if (!job?.id) return;
+
+        const jobType = String(job.type ?? '');
+        const isEditJob = jobType === 'image_edit';
+        const progress = job.progress && typeof job.progress === 'object' ? job.progress : null;
+        const meta = job.metadata && typeof job.metadata === 'object' ? job.metadata : null;
+        const total =
+          Number(progress?.total) ||
+          Number(meta?.numberOfVariations) ||
+          (isEditJob ? 1 : 1);
+
+        const metaTargetSetId = Number(meta?.targetSetId);
+        const targetSetId = Number.isFinite(metaTargetSetId) && metaTargetSetId > 0 ? metaTargetSetId : defaultSetId;
+
+        const outputLabelRaw = meta?.input && typeof meta.input === 'object' ? (meta.input as any).output_label : null;
+        const label = outputLabelRaw ? String(outputLabelRaw) : isEditJob ? 'edited-image' : 'generated-image';
+
+        // Create local "draft" placeholders so the grid shows in-progress work immediately.
+        const now = new Date().toISOString();
+        const baseDraftId = -Date.now();
+        const draftIds: number[] = [];
+        const drafts: FakeSetItem[] = Array.from({ length: total }).map((_, idx) => {
+          const id = baseDraftId - idx;
+          draftIds.push(id);
+          return {
+            id,
+            setId: targetSetId,
+            createdAt: now,
+            label: total === 1 ? label : `${label} ${idx + 1}`,
+            status: 'generating',
+            url: placeholderUrl('Generating…', Math.abs(id), 640),
+            prompt: String(meta?.prompt ?? ''),
+            schemaKey: String(meta?.schemaKey ?? (isEditJob ? 'edit.v1' : 'hero_product.v1')),
+            input: (meta?.input as any) ?? {},
+            isSelected: false,
+          };
+        });
+
+        setItemsBySetId((prev) => ({
+          ...prev,
+          [targetSetId]: [...drafts, ...(prev[targetSetId] ?? [])],
+        }));
+
+        setIsGenerating(true);
+        if (String(job.status) === 'queued') {
+          setSyncMessage(isEditJob ? 'Edit queued, waiting to start...' : 'Generation queued, waiting to start...');
+        } else if (String(job.status) === 'running') {
+          setSyncMessage(isEditJob ? 'Editing…' : 'Generating…');
+        } else {
+          setSyncMessage(null);
+        }
+
+        setActiveJob({
+          id: Number(job.id),
+          type: isEditJob ? 'edit' : 'generation',
+          status: String(job.status ?? 'queued'),
+          progress: {
+            current: Number(progress?.current ?? 0),
+            total,
+          },
+          error: job.error ? String(job.error) : undefined,
+          draftIds,
+          targetSetId,
+          label,
+        });
+
+        setActiveJobData({
+          id: Number(job.id),
+          type: jobType,
+          status: String(job.status ?? 'queued') as any,
+          progress: progress
+            ? {
+              current: Number(progress.current ?? 0),
+              total,
+              ...(Array.isArray(progress.completedImageIds)
+                ? { completedImageIds: progress.completedImageIds.map((x: any) => Number(x)) }
+                : {}),
+            }
+            : { current: 0, total },
+          error: job.error ? String(job.error) : null,
+          metadata: meta ?? null,
+          generationId: job.generationId ?? null,
+          createdAt: String(job.createdAt ?? now),
+          completedAt: job.completedAt ? String(job.completedAt) : null,
+        });
+      } catch (err) {
+        // Non-fatal: if this fails, the page still works (it just won't auto-restore).
+        console.error('Failed to restore active job:', err);
+      }
+    })();
+  }, [activeJob, defaultSetId, init, initLoading, productId, variantId, setItemsBySetId]);
 
   // Polling effect for active generation jobs
   useEffect(() => {
