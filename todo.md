@@ -19,20 +19,20 @@ Product:
 - generation output should generate based on inputs - Done
 - generation form has better UX now - Done
 - aspect ratio setting - Done
+- remove home page - Done
+- invite team members email - Done
 
 - non-garment workflow implementation 
 - infographics workflow implementation
 - description workflow implementation
 - garment workflow prompts
-- invite team members email
 - plan upgrade / downgrade flow
 - model and background library
 - onboarding
-- change all id fields to ulid
+- change all id fields to a big number
 - optimizations with kv
 - nano banana retry
 - applying moodboard properly
-- remove home page
 - batch processing bugs
 - show unfinished jobs on variant page on reload
 - remove image file names in moodboard page

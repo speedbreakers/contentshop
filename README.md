@@ -107,6 +107,8 @@ In your Vercel project settings (or during deployment), add all the necessary en
 3. `STRIPE_WEBHOOK_SECRET`: Use the webhook secret from the production webhook you created in step 1.
 4. `POSTGRES_URL`: Set this to your production database URL.
 5. `AUTH_SECRET`: Set this to a random string. `openssl rand -base64 32` will generate one.
+6. `RESEND_API_KEY`: Your Resend API key (used for team invite emails).
+7. `RESEND_FROM`: A verified sender identity, e.g. `Acme <[email protected]>`.
 
 ## Other Templates
 

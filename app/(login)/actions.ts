@@ -21,6 +21,7 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { createCheckoutSession } from '@/lib/payments/stripe';
 import { getUser, getUserWithTeam } from '@/lib/db/queries';
+import { sendTeamInviteEmail } from '@/lib/email/send-team-invite';
 import {
   validatedAction,
   validatedActionWithUser
@@ -123,12 +124,33 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     };
   }
 
+  // If signing up via an invite, validate the invitation BEFORE creating the user
+  // (prevents orphan users when an invite is invalid/expired).
+  let invitation: typeof invitations.$inferSelect | undefined;
+  if (inviteId) {
+    [invitation] = await db
+      .select()
+      .from(invitations)
+      .where(
+        and(
+          eq(invitations.id, parseInt(inviteId)),
+          eq(invitations.email, email),
+          eq(invitations.status, 'pending')
+        )
+      )
+      .limit(1);
+
+    if (!invitation) {
+      return { error: 'Invalid or expired invitation.', email, password };
+    }
+  }
+
   const passwordHash = await hashPassword(password);
 
   const newUser: NewUser = {
     email,
     passwordHash,
-    role: 'owner' // Default role, will be overridden if there's an invitation
+    role: invitation?.role ?? 'owner'
   };
 
   const [createdUser] = await db.insert(users).values(newUser).returning();
@@ -145,39 +167,22 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
   let userRole: string;
   let createdTeam: typeof teams.$inferSelect | null = null;
 
-  if (inviteId) {
-    // Check if there's a valid invitation
-    const [invitation] = await db
+  if (invitation) {
+    teamId = invitation.teamId;
+    userRole = invitation.role;
+
+    await db
+      .update(invitations)
+      .set({ status: 'accepted' })
+      .where(eq(invitations.id, invitation.id));
+
+    await logActivity(teamId, createdUser.id, ActivityType.ACCEPT_INVITATION);
+
+    [createdTeam] = await db
       .select()
-      .from(invitations)
-      .where(
-        and(
-          eq(invitations.id, parseInt(inviteId)),
-          eq(invitations.email, email),
-          eq(invitations.status, 'pending')
-        )
-      )
+      .from(teams)
+      .where(eq(teams.id, teamId))
       .limit(1);
-
-    if (invitation) {
-      teamId = invitation.teamId;
-      userRole = invitation.role;
-
-      await db
-        .update(invitations)
-        .set({ status: 'accepted' })
-        .where(eq(invitations.id, invitation.id));
-
-      await logActivity(teamId, createdUser.id, ActivityType.ACCEPT_INVITATION);
-
-      [createdTeam] = await db
-        .select()
-        .from(teams)
-        .where(eq(teams.id, teamId))
-        .limit(1);
-    } else {
-      return { error: 'Invalid or expired invitation.', email, password };
-    }
   } else {
     // Create a new team if there's no invitation
     const newTeam: NewTeam = {
@@ -406,6 +411,21 @@ export const inviteTeamMember = validatedActionWithUser(
       return { error: 'User is not part of a team' };
     }
 
+    const [membership] = await db
+      .select()
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.userId, user.id),
+          eq(teamMembers.teamId, userWithTeam.teamId)
+        )
+      )
+      .limit(1);
+
+    if (!membership || membership.role !== 'owner') {
+      return { error: 'Only team owners can invite new members.' };
+    }
+
     const existingMember = await db
       .select()
       .from(users)
@@ -436,14 +456,24 @@ export const inviteTeamMember = validatedActionWithUser(
       return { error: 'An invitation has already been sent to this email' };
     }
 
+    const [team] = await db
+      .select()
+      .from(teams)
+      .where(eq(teams.id, userWithTeam.teamId))
+      .limit(1);
+
+    if (!team) {
+      return { error: 'Team not found' };
+    }
+
     // Create a new invitation
-    await db.insert(invitations).values({
+    const [invitation] = await db.insert(invitations).values({
       teamId: userWithTeam.teamId,
       email,
       role,
       invitedBy: user.id,
       status: 'pending'
-    });
+    }).returning();
 
     await logActivity(
       userWithTeam.teamId,
@@ -451,8 +481,25 @@ export const inviteTeamMember = validatedActionWithUser(
       ActivityType.INVITE_TEAM_MEMBER
     );
 
-    // TODO: Send invitation email and include ?inviteId={id} to sign-up URL
-    // await sendInvitationEmail(email, userWithTeam.team.name, role)
+    if (!invitation) {
+      return { error: 'Failed to create invitation' };
+    }
+
+    try {
+      await sendTeamInviteEmail({
+        to: email,
+        inviterName: user.name || user.email,
+        teamName: team.name,
+        role,
+        inviteId: invitation.id,
+      });
+    } catch (err) {
+      console.error('Failed to send team invite email', err);
+      return {
+        error:
+          'Invitation was created, but the email failed to send. Please try again.',
+      };
+    }
 
     return { success: 'Invitation sent successfully' };
   }

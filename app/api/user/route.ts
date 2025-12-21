@@ -29,7 +29,20 @@ import {
 
 export async function GET() {
   const user = await getUser();
-  return Response.json(user);
+  if (!user) {
+    return Response.json(null);
+  }
+
+  // Ensure the role the UI sees matches the team membership role.
+  // (Users.role can drift; membership is the source of truth for permissions.)
+  const membership = await db.query.teamMembers.findFirst({
+    where: eq(teamMembers.userId, user.id),
+  });
+
+  return Response.json({
+    ...user,
+    role: membership?.role ?? user.role,
+  });
 }
 
 export async function DELETE(request: Request) {

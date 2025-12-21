@@ -147,12 +147,18 @@ function InviteTeamMemberSkeleton() {
 }
 
 function InviteTeamMember() {
-  const { data: user } = useSWR<User>('/api/user');
+  const { data: user, isLoading } = useSWR<User>('/api/user');
   const isOwner = user?.role === 'owner';
   const [inviteState, inviteAction, isInvitePending] = useActionState<
     ActionState,
     FormData
   >(inviteTeamMember, {});
+
+  // While loading, show nothing here (Suspense fallback will render).
+  if (isLoading) return null;
+
+  // Hide invite UI completely for non-owners.
+  if (!isOwner) return null;
 
   return (
     <Card>
@@ -172,7 +178,6 @@ function InviteTeamMember() {
               type="email"
               placeholder="Enter email"
               required
-              disabled={!isOwner}
             />
             </Field>
 
@@ -182,7 +187,6 @@ function InviteTeamMember() {
               defaultValue="member"
               name="role"
               className="flex space-x-4"
-              disabled={!isOwner}
             >
               <div className="flex items-center space-x-2 mt-2">
                   <RadioGroupItem value="member" id="invite-role-member" />
@@ -215,7 +219,7 @@ function InviteTeamMember() {
           <Button
             type="submit"
             className="bg-orange-500 hover:bg-orange-600 text-white"
-            disabled={isInvitePending || !isOwner}
+            disabled={isInvitePending}
           >
             {isInvitePending ? (
               <>
@@ -231,13 +235,6 @@ function InviteTeamMember() {
           </Button>
         </form>
       </CardContent>
-      {!isOwner && (
-        <CardFooter>
-          <p className="text-sm text-muted-foreground">
-            You must be a team owner to invite new members.
-          </p>
-        </CardFooter>
-      )}
     </Card>
   );
 }
