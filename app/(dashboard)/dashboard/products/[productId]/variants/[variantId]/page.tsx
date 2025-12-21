@@ -22,7 +22,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -317,7 +320,9 @@ export default function VariantAssetsPage() {
   // Category-driven generation form state (mock for now)
   const [genNumberOfVariations, setGenNumberOfVariations] = useState(1);
   const [genOutputFormat, setGenOutputFormat] = useState<'png' | 'jpg' | 'webp'>('png');
-  const [genAspectRatio, setGenAspectRatio] = useState<'1:1' | '4:5' | '3:4' | '16:9'>('1:1');
+  const [genAspectRatio, setGenAspectRatio] = useState<
+    '21:9' | '16:9' | '4:3' | '3:2' | '1:1' | '9:16' | '3:4' | '2:3' | '5:4' | '4:5'
+  >('1:1');
   const [genPurpose, setGenPurpose] = useState<'catalog' | 'ads' | 'infographics'>('catalog');
   const [genMoodboardId, setGenMoodboardId] = useState<number | null>(null);
   const [genMoodboardStrength, setGenMoodboardStrength] = useState<'strict' | 'inspired'>(
@@ -1754,10 +1759,31 @@ export default function VariantAssetsPage() {
                             <SelectValue placeholder="Select ratio" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="1:1">1:1</SelectItem>
-                            <SelectItem value="4:5">4:5</SelectItem>
-                            <SelectItem value="3:4">3:4</SelectItem>
-                            <SelectItem value="16:9">16:9</SelectItem>
+                            <SelectGroup>
+                              <SelectLabel>Square</SelectLabel>
+                              <SelectItem value="1:1">1:1</SelectItem>
+                            </SelectGroup>
+                            <SelectSeparator />
+                            <SelectGroup>
+                              <SelectLabel>Landscape</SelectLabel>
+                              <SelectItem value="21:9">21:9</SelectItem>
+                              <SelectItem value="16:9">16:9</SelectItem>
+                              <SelectItem value="4:3">4:3</SelectItem>
+                              <SelectItem value="3:2">3:2</SelectItem>
+                            </SelectGroup>
+                            <SelectSeparator />
+                            <SelectGroup>
+                              <SelectLabel>Portrait</SelectLabel>
+                              <SelectItem value="9:16">9:16</SelectItem>
+                              <SelectItem value="3:4">3:4</SelectItem>
+                              <SelectItem value="2:3">2:3</SelectItem>
+                            </SelectGroup>
+                            <SelectSeparator />
+                            <SelectGroup>
+                              <SelectLabel>Flexible</SelectLabel>
+                              <SelectItem value="5:4">5:4</SelectItem>
+                              <SelectItem value="4:5">4:5</SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                       </Field>
@@ -1821,14 +1847,14 @@ export default function VariantAssetsPage() {
                     Next
                   </Button>
                 ) : (
-                  <>
+                  <div className="flex gap-2">
                     <Button type="button" variant="outline" onClick={() => setGenStep(1)} disabled={isGenerating}>
                       Back
                     </Button>
                     <Button type="submit" disabled={isGenerating}>
                       {isGenerating ? 'Generating…' : 'Generate'}
                     </Button>
-                  </>
+                  </div>
                 )}
               </div>
             </SheetFooter>

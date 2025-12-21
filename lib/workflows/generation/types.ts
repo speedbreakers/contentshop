@@ -25,7 +25,17 @@ export type BaseGenerationInput = {
   model_image?: string;
   background_image?: string;
   output_format?: 'png' | 'jpg' | 'webp';
-  aspect_ratio?: '1:1' | '4:5' | '3:4' | '16:9';
+  aspect_ratio?:
+    | '21:9'
+    | '16:9'
+    | '4:3'
+    | '3:2'
+    | '1:1'
+    | '9:16'
+    | '3:4'
+    | '2:3'
+    | '5:4'
+    | '4:5';
   custom_instructions: string[];
   /**
    * Enriched by the API/job layer for prompt building & pipeline execution.

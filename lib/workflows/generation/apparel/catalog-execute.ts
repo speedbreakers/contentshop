@@ -166,6 +166,7 @@ export async function executeApparelCatalogWorkflow(args: {
     model_enabled: modelEnabled,
     model_description: resolvedModel?.model_description ?? '',
     modelImageUrl: args.input.model_image,
+    aspect_ratio: args.input.aspect_ratio,
   });
 
   // Persist pipeline metadata into generation input.

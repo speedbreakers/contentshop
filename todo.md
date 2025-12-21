@@ -18,8 +18,8 @@ Product:
 - added references to moodboard - Done
 - generation output should generate based on inputs - Done
 - generation form has better UX now - Done
+- aspect ratio setting - Done
 
-- aspect ratio setting
 - non-garment workflow implementation 
 - infographics workflow implementation
 - description workflow implementation

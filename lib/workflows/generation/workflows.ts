@@ -12,7 +12,9 @@ export const baseGenerationInputSchema = z.object({
   model_image: z.string().optional().default(''),
   background_image: z.string().optional().default(''),
   output_format: z.enum(['png', 'jpg', 'webp']).default('png'),
-  aspect_ratio: z.enum(['1:1', '4:5', '3:4', '16:9']).default('1:1'),
+  aspect_ratio: z
+    .enum(['21:9', '16:9', '4:3', '3:2', '1:1', '9:16', '3:4', '2:3', '5:4', '4:5'])
+    .default('1:1'),
   custom_instructions: z.array(z.string()),
   /**
    * Enriched by the API/job-queue layer (not entered by user directly).

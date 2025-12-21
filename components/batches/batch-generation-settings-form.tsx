@@ -5,12 +5,31 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { AssetPickerField } from "@/components/asset-picker";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Copy } from "lucide-react";
 
 export type BatchGenerationPurpose = "catalog" | "ads" | "infographics";
-export type BatchGenerationAspectRatio = "1:1" | "4:5" | "3:4" | "16:9";
+export type BatchGenerationAspectRatio =
+  | "21:9"
+  | "16:9"
+  | "4:3"
+  | "3:2"
+  | "1:1"
+  | "9:16"
+  | "3:4"
+  | "2:3"
+  | "5:4"
+  | "4:5";
 export type BatchGenerationOutputFormat = "png" | "jpg" | "webp";
 
 export type MoodboardOption = { id: number; name: string };
@@ -257,10 +276,31 @@ export function BatchGenerationSettingsForm(props: {
                     <SelectValue placeholder="Select ratio" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1:1">1:1</SelectItem>
-                    <SelectItem value="4:5">4:5</SelectItem>
-                    <SelectItem value="3:4">3:4</SelectItem>
-                    <SelectItem value="16:9">16:9</SelectItem>
+                    <SelectGroup>
+                      <SelectLabel>Landscape</SelectLabel>
+                      <SelectItem value="21:9">21:9</SelectItem>
+                      <SelectItem value="16:9">16:9</SelectItem>
+                      <SelectItem value="4:3">4:3</SelectItem>
+                      <SelectItem value="3:2">3:2</SelectItem>
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel>Square</SelectLabel>
+                      <SelectItem value="1:1">1:1</SelectItem>
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel>Portrait</SelectLabel>
+                      <SelectItem value="9:16">9:16</SelectItem>
+                      <SelectItem value="3:4">3:4</SelectItem>
+                      <SelectItem value="2:3">2:3</SelectItem>
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel>Flexible</SelectLabel>
+                      <SelectItem value="5:4">5:4</SelectItem>
+                      <SelectItem value="4:5">4:5</SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </Field>

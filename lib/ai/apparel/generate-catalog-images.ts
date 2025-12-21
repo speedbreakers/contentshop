@@ -1,4 +1,4 @@
-import { generateText } from 'ai';
+import { generateText, experimental_generateImage as generateImage, UserModelMessage, UserContent, ImagePart } from 'ai';
 import { put } from '@vercel/blob';
 import { buildSameOriginAuthHeaders, coerceResultFileToBytes, fetchAsBytes, resolveUrl } from '../shared/image-fetch';
 import type { GarmentAnalysis } from './analyze-garment';
@@ -28,6 +28,7 @@ export async function generateApparelCatalogImages(args: {
   analysis: GarmentAnalysis;
   background_description: string;
   custom_instructions: string;
+  aspect_ratio: string;
 }) {
   const n = Math.max(1, Math.min(10, Math.floor(args.numberOfVariations || 1)));
 
@@ -79,20 +80,38 @@ export async function generateApparelCatalogImages(args: {
   const outputs: GeneratedOutput[] = [];
 
   for (let idx = 0; idx < n; idx++) {
+    const messageContent: UserContent = [
+      { type: 'text', text: finalPrompt },
+    ]
+    
+    if (modelImg) {
+      messageContent.push(
+        { type: 'text', text: `Image 1 (Model Image):` }, 
+        { type: 'image', image: modelImg.bytes }
+      )
+    }
+
+    messageContent.push(
+      { type: 'text', text: `Garment Images:` },
+      ...imgs.map((ri) => ({ type: 'image', image: ri.bytes } as ImagePart))
+    )
+
     const result: any = await generateText({
       model: 'google/gemini-2.5-flash-image',
       messages: [
         {
           role: 'user',
-          content: [
-            { type: 'text', text: finalPrompt },
-            ...(modelImg ? [{ type: 'text', text: `Image 1 (Model Image):` }, { type: 'image', image: modelImg.bytes, mimeType: modelImg.mimeType }] : []),
-            { type: 'text', text: `Garment Images:` },
-            ...imgs.map((ri) => ({ type: 'image', image: ri.bytes, mimeType: ri.mimeType })),
-          ],
+          content: messageContent,
         },
       ],
-    } as any);
+      providerOptions: {
+        google: {
+          imageConfig: {
+            aspectRatio: args.aspect_ratio ?? '1:1',
+          }
+        }
+      }
+    });
 
     const files: any[] = Array.isArray(result?.files) ? result.files : [];
     const firstImage =
