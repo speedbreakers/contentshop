@@ -59,7 +59,6 @@ function AssetGrid(props: { items: MoodboardAsset[]; emptyLabel: string; size?: 
         size === "sm"
             ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2"
             : "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3";
-    const captionClass = size === "sm" ? "px-2 py-1 text-[11px]" : "p-2 text-xs";
 
     return (
         <div className={gridClass}>
@@ -67,9 +66,6 @@ function AssetGrid(props: { items: MoodboardAsset[]; emptyLabel: string; size?: 
                 <div key={a.id} className="rounded-md border overflow-hidden bg-background">
                     <div className="relative aspect-square">
                         <Image src={a.url} alt={a.originalName ?? `Asset ${a.id}`} fill className="object-cover" />
-                    </div>
-                    <div className={`${captionClass} text-muted-foreground truncate`}>
-                        {a.originalName ?? `File ${a.uploadedFileId}`}
                     </div>
                 </div>
             ))}
@@ -724,9 +720,6 @@ export default function MoodboardDetailPage() {
                                                             }
                                                         />
                                                     </div>
-                                                </div>
-                                                <div className="px-2 py-1 text-[11px] text-muted-foreground truncate">
-                                                    {u.originalName ?? `Upload ${u.id}`}
                                                 </div>
                                             </label>
                                         ))}

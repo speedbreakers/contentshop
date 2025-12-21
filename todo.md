@@ -21,6 +21,9 @@ Product:
 - aspect ratio setting - Done
 - remove home page - Done
 - invite team members email - Done
+- change all id fields to a big number - Done
+- remove image file names in moodboard page - Done
+- show unfinished jobs on variant page on reload - Done
 
 - non-garment workflow implementation 
 - infographics workflow implementation
@@ -29,13 +32,10 @@ Product:
 - plan upgrade / downgrade flow
 - model and background library
 - onboarding
-- change all id fields to a big number
 - optimizations with kv
 - nano banana retry
 - applying moodboard properly
 - batch processing bugs
-- show unfinished jobs on variant page on reload
-- remove image file names in moodboard page
 
 - allow batch generation from product screen
 - remove batch from main nav and replace with tasks (tasks shows all generation tasks)

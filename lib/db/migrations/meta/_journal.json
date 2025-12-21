@@ -5,78 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1726443359662,
-      "tag": "0000_soft_the_anarchist",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1765641974898,
-      "tag": "0001_stormy_owl",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1765648377224,
-      "tag": "0002_eminent_maximus",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1765650926022,
-      "tag": "0003_default_set",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1765688761421,
-      "tag": "0004_product_category",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1765688866341,
-      "tag": "0005_variant_generations",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1765693475322,
-      "tag": "0006_uploaded_files",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1734192000000,
-      "tag": "0007_product_image",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1734195600000,
-      "tag": "0008_product_descriptions",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1734282000000,
-      "tag": "0009_team_credits",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1765932000000,
-      "tag": "0010_moodboards",
+      "when": 1766313428295,
+      "tag": "0000_fresh_winter_soldier",
       "breakpoints": true
     }
   ]
