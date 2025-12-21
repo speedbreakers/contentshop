@@ -95,7 +95,31 @@ export async function POST(
     });
   }
 
-  // Create new job with same metadata
+  // Enforce "IDs-only" job metadata for image inputs.
+  // If the failed job predates this contract, require the user to recreate it.
+  if (failedJob.type === 'image_generation') {
+    const inputAny: any = meta?.input ?? {};
+    const ids = Array.isArray(inputAny.product_image_file_ids) ? inputAny.product_image_file_ids : [];
+    if (!ids.length) {
+      return Response.json(
+        { error: 'Cannot retry: job metadata is missing product_image_file_ids. Please re-create the job.' },
+        { status: 400 }
+      );
+    }
+  } else if (failedJob.type === 'image_edit') {
+    const inputAny: any = meta?.input ?? {};
+    const baseId = typeof inputAny.base_image_file_id === 'number' || typeof inputAny.base_image_file_id === 'string'
+      ? Number(inputAny.base_image_file_id)
+      : null;
+    if (!baseId || !Number.isFinite(baseId) || baseId <= 0) {
+      return Response.json(
+        { error: 'Cannot retry: job metadata is missing base_image_file_id. Please re-create the job.' },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Create new job with same metadata (but do not carry legacy URL/cookie fields forward)
   const newJob = await createGenerationJob(team.id, {
     productId: failedJob.productId,
     variantId: failedJob.variantId,

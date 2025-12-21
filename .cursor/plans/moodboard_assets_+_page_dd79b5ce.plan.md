@@ -114,7 +114,7 @@ Page UX:
 
 ### 2) Navigate to moodboard page after creation
 
-Update create flow in `[app/(dashboard)/dashboard/moodboards/page.tsx](app/\\(dashboard)/dashboard/moodboards/page.tsx)`:
+Update create flow in `[app/(dashboard)/dashboard/moodboards/page.tsx](app/\\\\(dashboard)/dashboard/moodboards/page.tsx)`:
 
 - After `POST /api/moodboards` returns `{ moodboard: { id } }`, do `router.push('/dashboard/moodboards/' + id)` and close the modal.
 

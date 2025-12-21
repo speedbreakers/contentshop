@@ -35,7 +35,7 @@ The API will call the generic executor which:
 Some workflows need multiple model calls / steps (e.g. garment pipelines). For these, a workflow can provide:
 - `execute({ teamId, productId, variantId, requestOrigin, authCookie?, moodboard?, input, numberOfVariations })`
 
-When `execute()` is present, the API will call it instead of the prompt-only executor.
+When `execute()` is present, the background job worker will call it instead of the prompt-only executor.
 
 Notes:
 - `authCookie` is passed by the API so pipeline steps can fetch **same-origin private URLs** (e.g. `/api/uploads/.../file`) without 401s.
@@ -65,14 +65,18 @@ Moodboards let the user select a reusable **style profile** (typography + do-not
 Executors receive a normalized object shaped like:
 - `id`, `name`
 - `styleProfile`: the raw JSON style profile
-- `assetFileIds`: ids of attached `uploaded_files`
-- `assetUrls`: signed URLs for each asset (same-origin)
-- `styleAppendix`: a compact prompt appendix (tone/font/case/rules/do-not)
+- `assetFileIds`: ids of attached `uploaded_files` (all sections)
+- `backgroundAssetFileIds`, `modelAssetFileIds`, `positiveAssetFileIds`, `negativeAssetFileIds`: ids per section
+- `positiveAssetUrls`, `negativeAssetUrls`: signed URLs (same-origin) for positive/negative references
+- `assetUrls`: backward-compat alias for `positiveAssetUrls`
+- `styleAppendix`: a compact prompt appendix (tone/font/case/rules/do-not + moodboard summaries)
+- `positiveSummary`, `negativeSummary`: summaries stored on the moodboard style profile
+- `strength`: `strict` | `inspired`
 
 ### Persisting moodboard data (recommended)
 
 For auditability, persist a snapshot in `variant_generations.input`:
-- `moodboard_snapshot`: `{ id, name, style_profile, asset_file_ids }`
+- `moodboard_snapshot`: `{ id, name, style_profile, asset_file_ids, background_asset_file_ids, model_asset_file_ids, reference_positive_file_ids, reference_negative_file_ids, reference_positive_summary, reference_negative_summary, strength }`
 - optionally also persist `style_appendix` and any pipeline metadata
 
 If you’re using the shared persistence helpers:
@@ -82,6 +86,15 @@ If you’re using the shared persistence helpers:
 This ensures:
 - the selected moodboard is queryable via `variant_generations.moodboard_id`
 - the exact style/asset selection is retained even if the moodboard changes later
+
+### Reference usage policy (current)
+
+- **Pipeline** (`workflow.execute`): always uses positive summaries and images; uses negative summary/images only when `moodboard_strength === 'strict'`.
+- **Prompt-only** (generic executor): always includes summaries in `style_appendix`; attaches **positive** reference images only when `moodboard_strength === 'strict'`; never attaches negative images.
+
+### Important: avoid expiring URLs in job metadata
+
+Jobs are processed asynchronously, so signed URLs produced at queue time may expire before execution. Persist **uploaded_file ids** in `moodboard_snapshot` and rehydrate fresh signed URLs in the worker right before generation.
 
 ### Step 1) Decide the routing dimension(s)
 Every workflow is selected by **(category family × purpose)**.

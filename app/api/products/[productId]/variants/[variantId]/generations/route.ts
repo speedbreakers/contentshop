@@ -8,6 +8,7 @@ import {
   getGenerationWorkflow,
   resolveGenerationWorkflowKey,
 } from '@/lib/workflows/generation';
+import { extractUploadFileId, extractUploadFileIds } from '@/lib/uploads/job-assets';
 import { getMoodboardById, listMoodboardAssetsByKind } from '@/lib/db/moodboards';
 import { signDownloadToken } from '@/lib/uploads/signing';
 import { createGenerationJob, countActiveGenerationJobsForTeam } from '@/lib/db/generation-jobs';
@@ -108,6 +109,10 @@ export async function POST(
     positiveSummary: string;
     negativeSummary: string;
     strength: 'strict' | 'inspired';
+    backgroundAssetFileIds: number[];
+    modelAssetFileIds: number[];
+    positiveAssetFileIds: number[];
+    negativeAssetFileIds: number[];
     backgroundAssetUrls: string[];
     modelAssetUrls: string[];
     styleAppendix: string;
@@ -143,12 +148,18 @@ export async function POST(
     const typography = (profile.typography ?? {}) as Record<string, unknown>;
     const rules = Array.isArray((typography as any).rules) ? (typography as any).rules : [];
     const doNot = Array.isArray((profile as any).do_not) ? (profile as any).do_not : [];
+    const positiveSummary = String((profile as any).reference_positive_summary ?? '');
+    const negativeSummary = String((profile as any).reference_negative_summary ?? '');
     const styleAppendix = [
       (typography as any).tone ? `Tone: ${(typography as any).tone}` : '',
       (typography as any).font_family ? `Font family: ${(typography as any).font_family}` : '',
       (typography as any).case ? `Text case: ${(typography as any).case}` : '',
       rules.length ? `Typography rules: ${rules.join('; ')}` : '',
       doNot.length ? `Do not: ${doNot.join('; ')}` : '',
+      positiveSummary.trim() ? `Style references (positive): ${positiveSummary.trim()}` : '',
+      moodboardStrength === 'strict' && negativeSummary.trim()
+        ? `Avoid these styles (negative references): ${negativeSummary.trim()}`
+        : '',
     ]
       .filter(Boolean)
       .join(' | ');
@@ -166,9 +177,13 @@ export async function POST(
       assetUrls: positiveAssetUrls,
       positiveAssetUrls,
       negativeAssetUrls,
-      positiveSummary: String((profile as any).reference_positive_summary ?? ''),
-      negativeSummary: String((profile as any).reference_negative_summary ?? ''),
+      positiveSummary,
+      negativeSummary,
       strength: moodboardStrength,
+      backgroundAssetFileIds: backgroundAssets.map((a) => a.uploadedFileId),
+      modelAssetFileIds: modelAssets.map((a) => a.uploadedFileId),
+      positiveAssetFileIds: positiveReferenceAssets.map((a) => a.uploadedFileId),
+      negativeAssetFileIds: negativeReferenceAssets.map((a) => a.uploadedFileId),
       backgroundAssetUrls,
       modelAssetUrls,
       styleAppendix,
@@ -246,15 +261,32 @@ export async function POST(
     });
   });
 
-  // Moodboard strictness:
-  // - strict: attach moodboard images as references
-  // - inspired: do not attach moodboard images; only use style_appendix in prompt
-  const backgroundReferenceImageUrls =
-    moodboard && moodboardStrength === 'strict' ? (moodboard as any).backgroundAssetUrls?.slice(0, 3) ?? [] : [];
-  const modelReferenceImageUrls =
-    moodboard && moodboardStrength === 'strict' ? (moodboard as any).modelAssetUrls?.slice(0, 3) ?? [] : [];
+  // Enforce uploads-only image inputs for background jobs.
+  const productImageFileIds = extractUploadFileIds((workflowInput as any)?.product_images ?? []);
+  if (productImageFileIds.length !== ((workflowInput as any)?.product_images?.length ?? 0)) {
+    return Response.json(
+      { error: 'All product_images must be upload-backed URLs (/api/uploads/:id/file)' },
+      { status: 400 }
+    );
+  }
 
-  const extraReferenceImageUrls = [...backgroundReferenceImageUrls, ...modelReferenceImageUrls];
+  const modelImageRaw = String((workflowInput as any)?.model_image ?? '').trim();
+  const modelImageFileId = modelImageRaw ? extractUploadFileId(modelImageRaw) : null;
+  if (modelImageRaw && !modelImageFileId) {
+    return Response.json(
+      { error: 'model_image must be an upload-backed URL (/api/uploads/:id/file) when provided' },
+      { status: 400 }
+    );
+  }
+
+  const backgroundImageRaw = String((workflowInput as any)?.background_image ?? '').trim();
+  const backgroundImageFileId = backgroundImageRaw ? extractUploadFileId(backgroundImageRaw) : null;
+  if (backgroundImageRaw && !backgroundImageFileId) {
+    return Response.json(
+      { error: 'background_image must be an upload-backed URL (/api/uploads/:id/file) when provided' },
+      { status: 400 }
+    );
+  }
 
   // Create a job instead of processing synchronously
   const job = await createGenerationJob(team.id, {
@@ -264,32 +296,28 @@ export async function POST(
     metadata: {
       schemaKey,
       input: {
-        ...workflowInput,
-        moodboard_snapshot: moodboard
-          ? {
-              id: moodboard.id,
-              name: moodboard.name,
-              style_profile: moodboard.styleProfile,
-              asset_file_ids: moodboard.assetFileIds,
-            }
-          : null,
+        // Persist non-image fields, but store image inputs as uploaded_file IDs only.
+        ...(workflowInput as any),
+        product_images: undefined,
+        model_image: undefined,
+        background_image: undefined,
+        product_image_file_ids: productImageFileIds,
+        model_enabled: Boolean(workflowInput.model_enabled),
+        ...(modelImageFileId ? { model_image_file_id: modelImageFileId } : {}),
+        ...(backgroundImageFileId ? { background_image_file_id: backgroundImageFileId } : {}),
         style_appendix: moodboard?.styleAppendix ?? '',
       },
       numberOfVariations,
       prompts, // Store array of prompts instead of single prompt
       moodboardId: moodboard?.id ?? null,
-      extraReferenceImageUrls,
-      backgroundReferenceImageUrls,
-      modelReferenceImageUrls,
       requestOrigin,
-      authCookie: request.headers.get('cookie'),
       productTitle: product.title,
       productCategory: product.category,
       // Store credit info for reference
       creditsId: creditCheck.creditsId,
       isOverage: creditCheck.isOverage,
       // Store whether model should be included (derived from model_image being non-empty)
-      modelEnabled: Boolean(workflowInput.model_image && workflowInput.model_image.trim() !== ''),
+      modelEnabled: Boolean(workflowInput.model_enabled ?? true),
     },
   });
 

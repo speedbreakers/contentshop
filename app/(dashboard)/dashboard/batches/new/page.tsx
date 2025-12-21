@@ -5,12 +5,12 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Upload as UploadIcon } from "lucide-react";
+import { Loader2, Plus, Upload as UploadIcon } from "lucide-react";
 import {
   BatchGenerationSettingsForm,
   type BatchGenerationAspectRatio,
@@ -19,6 +19,7 @@ import {
   type MoodboardOption,
 } from "@/components/batches/batch-generation-settings-form";
 import { FieldDescription, Field, FieldLabel } from "@/components/ui/field";
+import { Separator } from "@/components/ui/separator";
 
 type ProductListItem = {
   id: number;
@@ -132,6 +133,13 @@ export default function NewBatchPage() {
     () => Array.from(selectedVariants.keys()),
     [selectedVariants]
   );
+  const selectedProductCount = React.useMemo(() => {
+    const ids = new Set<number>();
+    for (const v of selectedVariants.values()) {
+      if (typeof v.productId === "number") ids.add(v.productId);
+    }
+    return ids.size;
+  }, [selectedVariants]);
 
   // Step 2: candidates + per-variant selected image urls (1..4)
   const [candidates, setCandidates] = React.useState<ImageCandidatesResponse | null>(null);
@@ -181,7 +189,7 @@ export default function NewBatchPage() {
   const [purpose, setPurpose] = React.useState<BatchGenerationPurpose>("catalog");
   const [aspectRatio, setAspectRatio] = React.useState<BatchGenerationAspectRatio>("1:1");
   const [outputFormat, setOutputFormat] = React.useState<BatchGenerationOutputFormat>("png");
-  const [numberOfVariations, setNumberOfVariations] = React.useState(1);
+  const [numberOfVariations, setNumberOfVariations] = React.useState(4);
   const [moodboardId, setMoodboardId] = React.useState<number | null>(null);
   const [moodboardStrength, setMoodboardStrength] = React.useState<"strict" | "inspired">(
     "inspired"
@@ -275,470 +283,601 @@ export default function NewBatchPage() {
             <CardTitle>Select variants</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 min-h-0 overflow-hidden flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-3 shrink-0">
-            <Input
-              value={variantQuery}
-              onChange={(e) => setVariantQuery(e.target.value)}
-              placeholder="Search variants (product name, variant title, SKU)…"
-            />
-            <div className="text-sm text-muted-foreground whitespace-nowrap">
-              {selectedVariantIds.length} selected
+            <div className="flex items-center justify-between gap-3 shrink-0">
+              <Input
+                value={variantQuery}
+                onChange={(e) => setVariantQuery(e.target.value)}
+                placeholder="Search variants (product name, variant title, SKU)…"
+              />
+              <div className="text-sm text-muted-foreground whitespace-nowrap">
+                {selectedVariantIds.length} selected
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  // Select all visible up to the cap (100)
+                  const ids = allVariants.slice(0, 100).map((v) => v.id);
+                  applySelection(new Set(ids));
+                }}
+                disabled={allVariants.length === 0}
+              >
+                Select all
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => applySelection(new Set())}
+                disabled={selectedVariantIds.length === 0}
+              >
+                Clear
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => {
-                // Select all visible up to the cap (100)
-                const ids = allVariants.slice(0, 100).map((v) => v.id);
-                applySelection(new Set(ids));
-              }}
-              disabled={allVariants.length === 0}
-            >
-              Select all
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => applySelection(new Set())}
-              disabled={selectedVariantIds.length === 0}
-            >
-              Clear
-            </Button>
-          </div>
 
-          {variantsLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading variants…
-            </div>
-          ) : allVariants.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No products found.</div>
-          ) : (
-            <div className="flex-1 min-h-0 overflow-auto pr-1 space-y-2">
-              {variantSelectError ? (
-                <div className="text-sm text-red-600">{variantSelectError}</div>
-              ) : null}
-              {allVariants.map((v, idx) => {
-                const checked = selectedVariants.has(v.id);
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    className="w-full text-left rounded-md border p-2 hover:bg-muted/40"
-                    onClick={(e) => {
-                      const isCtrl = e.metaKey || e.ctrlKey;
-                      const isShift = e.shiftKey;
+            {variantsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading variants…
+              </div>
+            ) : allVariants.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No products found.</div>
+            ) : (
+              <div className="flex-1 min-h-0 overflow-auto pr-1 space-y-2">
+                {variantSelectError ? (
+                  <div className="text-sm text-red-600">{variantSelectError}</div>
+                ) : null}
+                {allVariants.map((v, idx) => {
+                  const checked = selectedVariants.has(v.id);
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      className="w-full text-left rounded-md border p-2 hover:bg-muted/40"
+                      onClick={(e) => {
+                        const isCtrl = e.metaKey || e.ctrlKey;
+                        const isShift = e.shiftKey;
 
-                      // Current selected set
-                      const current = new Set(selectedVariantIds);
-                      setVariantSelectError(null);
+                        // Current selected set
+                        const current = new Set(selectedVariantIds);
+                        setVariantSelectError(null);
 
-                      if (isShift && lastClickedIndex !== null) {
-                        const a = Math.min(lastClickedIndex, idx);
-                        const b = Math.max(lastClickedIndex, idx);
-                        const rangeIds = allVariants.slice(a, b + 1).map((x) => x.id);
+                        if (isShift && lastClickedIndex !== null) {
+                          const a = Math.min(lastClickedIndex, idx);
+                          const b = Math.max(lastClickedIndex, idx);
+                          const rangeIds = allVariants.slice(a, b + 1).map((x) => x.id);
 
-                        // If ctrl/cmd is also held, add range to current; else replace with range
-                        const next = isCtrl ? new Set([...current, ...rangeIds]) : new Set(rangeIds);
-                        if (next.size > 100) {
-                          setVariantSelectError("You can select up to 100 variants per batch.");
-                          return;
-                        }
-                        applySelection(next);
-                      } else if (isCtrl) {
-                        if (current.has(v.id)) current.delete(v.id);
-                        else {
-                          if (current.size >= 100) {
+                          // If ctrl/cmd is also held, add range to current; else replace with range
+                          const next = isCtrl ? new Set([...current, ...rangeIds]) : new Set(rangeIds);
+                          if (next.size > 100) {
                             setVariantSelectError("You can select up to 100 variants per batch.");
                             return;
                           }
-                          current.add(v.id);
-                        }
-                        applySelection(current);
-                      } else {
-                        // Plain click: toggle while preserving existing selection
-                        if (current.has(v.id)) {
-                          current.delete(v.id);
+                          applySelection(next);
+                        } else if (isCtrl) {
+                          if (current.has(v.id)) current.delete(v.id);
+                          else {
+                            if (current.size >= 100) {
+                              setVariantSelectError("You can select up to 100 variants per batch.");
+                              return;
+                            }
+                            current.add(v.id);
+                          }
                           applySelection(current);
                         } else {
-                          if (current.size >= 100) {
-                            setVariantSelectError("You can select up to 100 variants per batch.");
-                            return;
+                          // Plain click: toggle while preserving existing selection
+                          if (current.has(v.id)) {
+                            current.delete(v.id);
+                            applySelection(current);
+                          } else {
+                            if (current.size >= 100) {
+                              setVariantSelectError("You can select up to 100 variants per batch.");
+                              return;
+                            }
+                            current.add(v.id);
+                            applySelection(current);
                           }
-                          current.add(v.id);
-                          applySelection(current);
                         }
-                      }
 
-                      setLastClickedIndex(idx);
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {/* <Checkbox checked={checked} /> */}
-                        <input type="checkbox" checked={checked} readOnly className="w-4 h-4" />
-                        <div className="relative h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0">
-                          {v.imageUrl ? (
-                            <Image src={v.imageUrl} alt="" fill sizes="40px" className="object-cover" />
-                          ) : null}
+                        setLastClickedIndex(idx);
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {/* <Checkbox checked={checked} /> */}
+                          <input type="checkbox" checked={checked} readOnly className="w-4 h-4" />
+                          <div className="relative h-10 w-10 rounded-md border overflow-hidden bg-muted shrink-0">
+                            {v.imageUrl ? (
+                              <Image src={v.imageUrl} alt="" fill sizes="40px" className="object-cover" />
+                            ) : null}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">
+                              {v.productTitle ? `${v.productTitle} — ` : ""}
+                              {v.title}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {v.sku ? `SKU: ${v.sku}` : "—"} · Variant #{v.id}
+                            </div>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">
-                            {v.productTitle ? `${v.productTitle} — ` : ""}
-                            {v.title}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate">
-                            {v.sku ? `SKU: ${v.sku}` : "—"} · Variant #{v.id}
-                          </div>
+                        <div className="text-xs text-muted-foreground whitespace-nowrap">
+                          {checked ? "Selected" : ""}
                         </div>
                       </div>
-                      <div className="text-xs text-muted-foreground whitespace-nowrap">
-                        {checked ? "Selected" : ""}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 shrink-0">
+              <Button
+                onClick={async () => {
+                  setStep("images");
+                  await loadCandidates();
+                }}
+                disabled={!canContinueToImages}
+              >
+                Continue to image selection
+              </Button>
             </div>
-          )}
-
-          <div className="flex items-center justify-end gap-2 shrink-0">
-            <Button
-              onClick={async () => {
-                setStep("images");
-                await loadCandidates();
-              }}
-              disabled={!canContinueToImages}
-            >
-              Continue to image selection
-            </Button>
-          </div>
           </CardContent>
         </Card>
       ) : step === "images" ? (
-        <Card className="p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-medium">Select images per variant</div>
-              <div className="text-sm text-muted-foreground">
-                Choose 1–4 images per variant. Sources: variant image, generated images, uploads, or upload new.
+        <Card className="h-[calc(100dvh-150px)] min-h-0 flex flex-col overflow-hidden">
+          <CardHeader className="shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Select images per variant</CardTitle>
+                <div className="text-sm text-muted-foreground">Choose 1–4 images per variant</div>
               </div>
+              <Button variant="outline" onClick={() => setStep("variants")}>
+                Back
+              </Button>
             </div>
-            <Button variant="outline" onClick={() => setStep("variants")}>
-              Back
-            </Button>
-          </div>
-
-          {loadingCandidates ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading candidates…
-            </div>
-          ) : candidatesError ? (
-            <div className="text-sm text-red-600">{candidatesError}</div>
-          ) : !candidates ? (
-            <div className="text-sm text-muted-foreground">No candidates loaded.</div>
-          ) : (
-            <div className="space-y-3">
-              {candidates.variants.map((v) => {
-                const selectedUrls = selectedImageUrlsByVariantId[v.variantId] ?? [];
-                const selectedOk = selectedUrls.length >= 1 && selectedUrls.length <= 4;
-                return (
-                  <div key={v.variantId} className="rounded-md border p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{v.variantTitle}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {selectedUrls.length} selected {selectedOk ? "" : "· select 1–4"}
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setImagePickerVariantId(v.variantId);
-                          setImagePickerTab("variant");
-                        }}
-                      >
-                        Choose images
-                      </Button>
-                    </div>
-
-                    {selectedUrls.length > 0 ? (
-                      <div className="mt-3 grid grid-cols-6 gap-2">
-                        {selectedUrls.slice(0, 4).map((url) => (
-                          <div
-                            key={url}
-                            className="relative rounded-md border overflow-hidden bg-muted"
-                            title="Selected"
-                          >
-                            <div className="aspect-square relative">
-                              <Image src={url} alt="" fill sizes="90px" className="object-cover" />
+          </CardHeader>
+          <CardContent className="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
+            {loadingCandidates ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading candidates…
+              </div>
+            ) : candidatesError ? (
+              <div className="text-sm text-red-600">{candidatesError}</div>
+            ) : !candidates ? (
+              <div className="text-sm text-muted-foreground">No candidates loaded.</div>
+            ) : (
+              <div className="flex-1 min-h-0 overflow-auto pr-1 space-y-3">
+                {candidates.variants.map((v) => {
+                  const selectedUrls = selectedImageUrlsByVariantId[v.variantId] ?? [];
+                  const selectedVariant = selectedVariants.get(v.variantId);
+                  const productTitle = selectedVariant?.productTitle ? String(selectedVariant.productTitle) : "";
+                  const combinedTitle = productTitle ? <>{productTitle}</> : v.variantTitle;
+                  return (
+                    <div key={v.variantId} className="rounded-md border p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{combinedTitle}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {v.variantTitle}
                             </div>
                           </div>
-                        ))}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {selectedUrls.length > 0 ? (
+                            <div className="hidden sm:flex items-center gap-2 justify-end">
+                              {selectedUrls.slice(0, 4).map((url) => (
+                                <div
+                                  key={url}
+                                  className="relative rounded-md border overflow-hidden bg-muted shrink-0"
+                                  title="Selected"
+                                >
+                                  <div className="relative w-10 h-10">
+                                    <Image src={url} alt="" fill sizes="40px" className="object-contain" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {selectedUrls.length > 0 ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => {
+                                setImagePickerVariantId(v.variantId);
+                                setImagePickerTab("variant");
+                              }}
+                              className="shrink-0"
+                              title="Add images"
+                              aria-label="Add images"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setImagePickerVariantId(v.variantId);
+                                setImagePickerTab("variant");
+                              }}
+                              className="shrink-0"
+                            >
+                              Choose images
+                            </Button>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Mobile: show thumbnails on a second line to preserve readability */}
+                      {selectedUrls.length > 0 ? (
+                        <div className="sm:hidden mt-3 flex gap-x-2">
+                          {selectedUrls.slice(0, 4).map((url) => (
+                            <div
+                              key={url}
+                              className="relative rounded-md border overflow-hidden bg-muted"
+                              title="Selected"
+                            >
+                              <div className="aspect-square relative w-12 h-12">
+                                <Image src={url} alt="" fill sizes="48px" className="object-contain" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <Dialog
+              open={imagePickerVariantId !== null}
+              onOpenChange={(open) => {
+                if (!open) setImagePickerVariantId(null);
+              }}
+            >
+              <DialogContent className="max-w-5xl max-h-[80dvh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>
+                    Choose images (max 4)
+                    {pickerVariant
+                      ? (() => {
+                        const sel = selectedVariants.get(pickerVariant.variantId);
+                        const pt = sel?.productTitle ? String(sel.productTitle) : "";
+                        return pt ? ` — ${pt} — ${pickerVariant.variantTitle}` : ` — ${pickerVariant.variantTitle}`;
+                      })()
+                      : ""}
+                  </DialogTitle>
+                </DialogHeader>
+
+                <Tabs value={imagePickerTab} onValueChange={(v) => setImagePickerTab(v as any)}>
+                  <TabsList>
+                    <TabsTrigger value="variant">Variant</TabsTrigger>
+                    <TabsTrigger value="generated">Generated</TabsTrigger>
+                    <TabsTrigger value="uploads">Uploads</TabsTrigger>
+                    <TabsTrigger value="upload_new">Upload new</TabsTrigger>
+                  </TabsList>
+
+                  <div className="mt-3 text-sm text-muted-foreground">
+                    Selected: {currentSelectedForPicker.length}/4
+                  </div>
+
+                  <TabsContent value="variant" className="mt-4">
+                    {!pickerVariant?.variantImageUrl ? (
+                      <div className="text-sm text-muted-foreground">This variant has no imageUrl.</div>
                     ) : (
-                      <div className="mt-3 text-sm text-muted-foreground">
-                        No images selected yet. Click “Choose images”.
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                        <ImageTile
+                          url={pickerVariant.variantImageUrl}
+                          selected={currentSelectedForPicker.includes(pickerVariant.variantImageUrl)}
+                          onToggle={() => togglePickerUrl(pickerVariant.variantImageUrl!)}
+                          label="Variant image"
+                        />
                       </div>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  </TabsContent>
 
-          <Dialog
-            open={imagePickerVariantId !== null}
-            onOpenChange={(open) => {
-              if (!open) setImagePickerVariantId(null);
-            }}
-          >
-            <DialogContent className="max-w-5xl max-h-[80dvh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>
-                  Choose images (max 4){pickerVariant ? ` — ${pickerVariant.variantTitle}` : ""}
-                </DialogTitle>
-              </DialogHeader>
-
-              <Tabs value={imagePickerTab} onValueChange={(v) => setImagePickerTab(v as any)}>
-                <TabsList>
-                  <TabsTrigger value="variant">Variant</TabsTrigger>
-                  <TabsTrigger value="generated">Generated</TabsTrigger>
-                  <TabsTrigger value="uploads">Uploads</TabsTrigger>
-                  <TabsTrigger value="upload_new">Upload new</TabsTrigger>
-                </TabsList>
-
-                <div className="mt-3 text-sm text-muted-foreground">
-                  Selected: {currentSelectedForPicker.length}/4
-                </div>
-
-                <TabsContent value="variant" className="mt-4">
-                  {!pickerVariant?.variantImageUrl ? (
-                    <div className="text-sm text-muted-foreground">This variant has no imageUrl.</div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                      <ImageTile
-                        url={pickerVariant.variantImageUrl}
-                        selected={currentSelectedForPicker.includes(pickerVariant.variantImageUrl)}
-                        onToggle={() => togglePickerUrl(pickerVariant.variantImageUrl!)}
-                        label="Variant image"
-                      />
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="generated" className="mt-4">
-                  {pickerVariant && pickerVariant.generatedImages.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">No generated images yet.</div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                      {(pickerVariant?.generatedImages ?? []).map((img) => (
-                        <ImageTile
-                          key={img.id}
-                          url={img.url}
-                          selected={currentSelectedForPicker.includes(img.url)}
-                          onToggle={() => togglePickerUrl(img.url)}
-                          label={new Date(img.createdAt).toLocaleString()}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="uploads" className="mt-4">
-                  {candidates && candidates.uploads.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">No uploads yet.</div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                      {(candidates?.uploads ?? []).map((u) => (
-                        <ImageTile
-                          key={u.id}
-                          url={u.url}
-                          selected={currentSelectedForPicker.includes(u.url)}
-                          onToggle={() => togglePickerUrl(u.url)}
-                          label={u.originalName ?? `Upload ${u.id}`}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="upload_new" className="mt-4">
-                  <div className="rounded-md border p-3 space-y-3">
-                    <div className="text-sm text-muted-foreground">
-                      Upload an image and it will be available in the Uploads tab and selectable immediately.
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        disabled={uploading}
-                        onChange={(e) => {
-                          const f = e.currentTarget.files?.[0] ?? null;
-                          if (!f) return;
-                          void uploadNew(f);
-                          e.currentTarget.value = "";
-                        }}
-                      />
-                      <Button type="button" variant="outline" disabled>
-                        <UploadIcon className="h-4 w-4 mr-2" />
-                        Upload
-                      </Button>
-                    </div>
-                    {uploading ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Uploading…
+                  <TabsContent value="generated" className="mt-4">
+                    {pickerVariant && pickerVariant.generatedImages.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">No generated images yet.</div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                        {(pickerVariant?.generatedImages ?? []).map((img) => (
+                          <ImageTile
+                            key={img.id}
+                            url={img.url}
+                            selected={currentSelectedForPicker.includes(img.url)}
+                            onToggle={() => togglePickerUrl(img.url)}
+                            label={new Date(img.createdAt).toLocaleString()}
+                          />
+                        ))}
                       </div>
-                    ) : null}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </DialogContent>
-          </Dialog>
+                    )}
+                  </TabsContent>
 
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                void loadCandidates();
-              }}
-              disabled={loadingCandidates || selectedVariantIds.length === 0}
-            >
-              Refresh candidates
-            </Button>
-            <Button
-              onClick={() => setStep("settings")}
-              disabled={!canContinueToSettings || loadingCandidates || !candidates}
-            >
-              Continue to generation settings
-            </Button>
-          </div>
+                  <TabsContent value="uploads" className="mt-4">
+                    {candidates && candidates.uploads.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">No uploads yet.</div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                        {(candidates?.uploads ?? []).map((u) => (
+                          <ImageTile
+                            key={u.id}
+                            url={u.url}
+                            selected={currentSelectedForPicker.includes(u.url)}
+                            onToggle={() => togglePickerUrl(u.url)}
+                            label={u.originalName ?? `Upload ${u.id}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="upload_new" className="mt-4">
+                    <div className="rounded-md border p-3 space-y-3">
+                      <div className="text-sm text-muted-foreground">
+                        Upload an image and it will be available in the Uploads tab and selectable immediately.
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          disabled={uploading}
+                          onChange={(e) => {
+                            const f = e.currentTarget.files?.[0] ?? null;
+                            if (!f) return;
+                            void uploadNew(f);
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                        <Button type="button" variant="outline" disabled>
+                          <UploadIcon className="h-4 w-4 mr-2" />
+                          Upload
+                        </Button>
+                      </div>
+                      {uploading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Uploading…
+                        </div>
+                      ) : null}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </DialogContent>
+            </Dialog>
+
+            <div className="flex items-center justify-end gap-2 pt-2 bg-sidebar shrink-0">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void loadCandidates();
+                }}
+                disabled={loadingCandidates || selectedVariantIds.length === 0}
+              >
+                Refresh candidates
+              </Button>
+              <Button
+                onClick={() => setStep("settings")}
+                disabled={!canContinueToSettings || loadingCandidates || !candidates}
+              >
+                Continue to generation settings
+              </Button>
+            </div>
+          </CardContent>
         </Card>
       ) : step === "settings" ? (
-        <Card className="p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-medium">Generation settings</div>
-              <div className="text-sm text-muted-foreground">
-                These settings apply to every selected variant. Images are chosen per variant in Step 2.
+        <Card className="h-[calc(100dvh-150px)] min-h-0 flex flex-col overflow-hidden">
+          <CardHeader className="shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Generation settings</CardTitle>
+                <div className="text-sm text-muted-foreground">
+                  These settings apply to every selected variant
+                </div>
               </div>
+              <Button variant="outline" onClick={() => setStep("images")}>
+                Back
+              </Button>
             </div>
-            <Button variant="outline" onClick={() => setStep("images")}>
-              Back
-            </Button>
-          </div>
+          </CardHeader>
+          <CardContent className="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
+            <div className="flex-1 min-h-0 overflow-auto pr-1">
+              <BatchGenerationSettingsForm
+                numberOfVariations={numberOfVariations}
+                onNumberOfVariationsChange={setNumberOfVariations}
+                aspectRatio={aspectRatio}
+                onAspectRatioChange={setAspectRatio}
+                purpose={purpose}
+                onPurposeChange={setPurpose}
+                outputFormat={outputFormat}
+                onOutputFormatChange={setOutputFormat}
+                moodboardId={moodboardId}
+                onMoodboardIdChange={setMoodboardId}
+                moodboardStrength={moodboardStrength}
+                onMoodboardStrengthChange={setMoodboardStrength}
+                moodboards={moodboards}
+                modelEnabled={modelEnabled}
+                onModelEnabledChange={setModelEnabled}
+                modelImageUrl={modelImageUrl}
+                onModelImageUrlChange={setModelImageUrl}
+                backgroundImageUrl={backgroundImageUrl}
+                onBackgroundImageUrlChange={setBackgroundImageUrl}
+                customInstructions={customInstructions}
+                onCustomInstructionsChange={setCustomInstructions}
+              />
+            </div>
 
-          <BatchGenerationSettingsForm
-            numberOfVariations={numberOfVariations}
-            onNumberOfVariationsChange={setNumberOfVariations}
-            aspectRatio={aspectRatio}
-            onAspectRatioChange={setAspectRatio}
-            purpose={purpose}
-            onPurposeChange={setPurpose}
-            outputFormat={outputFormat}
-            onOutputFormatChange={setOutputFormat}
-            moodboardId={moodboardId}
-            onMoodboardIdChange={setMoodboardId}
-            moodboardStrength={moodboardStrength}
-            onMoodboardStrengthChange={setMoodboardStrength}
-            moodboards={moodboards}
-            modelEnabled={modelEnabled}
-            onModelEnabledChange={setModelEnabled}
-            modelImageUrl={modelImageUrl}
-            onModelImageUrlChange={setModelImageUrl}
-            backgroundImageUrl={backgroundImageUrl}
-            onBackgroundImageUrlChange={setBackgroundImageUrl}
-            customInstructions={customInstructions}
-            onCustomInstructionsChange={setCustomInstructions}
-          />
-
-          <div className="flex items-center justify-end gap-2">
-            <Button onClick={() => setStep("review")}>Continue to review</Button>
-          </div>
+            <div className="flex items-center justify-end gap-2 pt-2 bg-sidebar shrink-0">
+              <Button onClick={() => setStep("review")}>Continue to review</Button>
+            </div>
+          </CardContent>
         </Card>
       ) : (
-        <Card className="p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-medium">Review & start</div>
-              <div className="text-sm text-muted-foreground">
-                {selectedVariantIds.length} variants × {Math.max(1, Math.min(10, numberOfVariations))} variations
+        <Card className="h-[calc(100dvh-150px)] min-h-0 flex flex-col overflow-hidden">
+          <CardHeader className="shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Review & start</CardTitle>
+                <CardDescription>
+                  Review the batch settings and start the batch.
+                </CardDescription>
               </div>
+              <Button variant="outline" onClick={() => setStep("settings")}>
+                Back
+              </Button>
             </div>
-            <Button variant="outline" onClick={() => setStep("settings")}>
-              Back
-            </Button>
-          </div>
+          </CardHeader>
 
-          <div className="space-y-1">
-            <Field>
-              <FieldLabel>Batch name</FieldLabel>
-              <Input value={batchName} onChange={(e) => setBatchName(e.target.value)} />
-              <FieldDescription>Name is required before starting the batch.</FieldDescription>
-            </Field>
-          </div>
+          <CardContent className="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
+            <div className="flex-1 min-h-0 overflow-auto pr-1 space-y-3">
+              <div className="space-y-1">
+                <Field>
+                  <FieldLabel>Batch name <span className="text-red-500">*</span></FieldLabel>
+                  <Input value={batchName} onChange={(e) => setBatchName(e.target.value)} />
+                  <FieldDescription>Name is required before starting the batch.</FieldDescription>
+                </Field>
+              </div>
 
-          {submitError ? <div className="text-sm text-red-600">{submitError}</div> : null}
-          {createdBatchId ? (
-            <div className="text-sm text-muted-foreground">
-              Batch created: #{createdBatchId}
+              <Separator />
+
+              <div className="font-medium">Batch details</div>
+              <div className="inline-flex rounded-md border bg-muted/30 px-3 py-1.5 text-sm text-muted-foreground">
+                {selectedProductCount} products · {selectedVariantIds.length} variants ·{" "}
+                {Math.max(1, Math.min(10, numberOfVariations))} variations each
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Purpose</div>
+                    <div className="font-medium capitalize">{purpose}</div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Aspect ratio</div>
+                    <div className="font-medium">{aspectRatio}</div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Output format</div>
+                    <div className="font-medium uppercase">{outputFormat}</div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Variations</div>
+                    <div className="font-medium">
+                      {Math.max(1, Math.min(10, Math.floor(numberOfVariations || 1)))}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Moodboard</div>
+                    <div className="font-medium">
+                      {moodboardId
+                        ? moodboards.find((m) => m.id === moodboardId)?.name ?? `#${moodboardId}`
+                        : "None"}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Moodboard usage</div>
+                    <div className="font-medium">{moodboardId ? moodboardStrength : "—"}</div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Model</div>
+                    <div className="font-medium">
+                      {!modelEnabled ? "No model" : modelImageUrl.trim() ? "Using model image" : "Auto model"}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">Background</div>
+                    <div className="font-medium">{backgroundImageUrl.trim() ? "Using background image" : "Auto"}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-sm text-muted-foreground">Custom instructions</div>
+                  {Array.isArray(customInstructions) &&
+                    customInstructions.some((x) => String(x ?? "").trim()) ? (
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {customInstructions
+                        .slice(0, Math.max(1, Math.min(10, Math.floor(numberOfVariations || 1))))
+                        .map((ins, idx) => {
+                          const v = String(ins ?? "").trim();
+                          if (!v) return null;
+                          return (
+                            <li key={idx} className="flex gap-2">
+                              <span className="text-muted-foreground">Variation {idx + 1}:</span>
+                              <span className="font-medium">{v}</span>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  ) : (
+                    <div className="mt-2 text-sm">—</div>
+                  )}
+                </div>
+              </div>
+
+              {submitError ? <div className="text-sm text-red-600">{submitError}</div> : null}
+              {createdBatchId ? (
+                <div className="text-sm text-muted-foreground">Batch created: #{createdBatchId}</div>
+              ) : null}
             </div>
-          ) : null}
 
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              onClick={async () => {
-                if (!candidates) return;
-                setSubmitting(true);
-                setSubmitError(null);
-                try {
-                  if (!batchName.trim()) {
-                    throw new Error("Batch name is required.");
-                  }
-                  const variants = candidates.variants.map((v) => ({
-                    variantId: v.variantId,
-                    productImageUrls: selectedImageUrlsByVariantId[v.variantId] ?? [],
-                  }));
-                  const res = await fetch("/api/batches", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      name: batchName.trim(),
-                      variants,
-                      settings: {
-                        numberOfVariations: Math.max(1, Math.min(10, Math.floor(numberOfVariations || 1))),
-                        input: {
-                          purpose,
-                          moodboard_id: moodboardId,
-                          moodboard_strength: moodboardId ? moodboardStrength : undefined,
-                          model_image: modelEnabled ? modelImageUrl.trim() : "",
-                          background_image: backgroundImageUrl.trim(),
-                          output_format: outputFormat,
-                          aspect_ratio: aspectRatio,
-                          custom_instructions: customInstructions,
+            <div className="flex items-center justify-end gap-2 pt-2 bg-sidebar shrink-0">
+              <Button
+                onClick={async () => {
+                  if (!candidates) return;
+                  setSubmitting(true);
+                  setSubmitError(null);
+                  try {
+                    if (!batchName.trim()) {
+                      throw new Error("Batch name is required.");
+                    }
+                    const variants = candidates.variants.map((v) => ({
+                      variantId: v.variantId,
+                      productImageUrls: selectedImageUrlsByVariantId[v.variantId] ?? [],
+                    }));
+                    const res = await fetch("/api/batches", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        name: batchName.trim(),
+                        variants,
+                        settings: {
+                          numberOfVariations: Math.max(1, Math.min(10, Math.floor(numberOfVariations || 1))),
+                          input: {
+                            purpose,
+                            moodboard_id: moodboardId,
+                            moodboard_strength: moodboardId ? moodboardStrength : undefined,
+                            model_enabled: modelEnabled,
+                            model_image: modelEnabled ? modelImageUrl.trim() : "",
+                            background_image: backgroundImageUrl.trim(),
+                            output_format: outputFormat,
+                            aspect_ratio: aspectRatio,
+                            custom_instructions: customInstructions,
+                          },
                         },
-                      },
-                    }),
-                  });
-                  const data = await res.json().catch(() => null);
-                  if (!res.ok) throw new Error(data?.error ?? `Failed to start batch (HTTP ${res.status})`);
-                  const id = Number(data?.batch?.id);
-                  if (Number.isFinite(id)) {
-                    setCreatedBatchId(id);
-                    // Send user back to the batches list (until we have a batch detail page).
-                    router.push(`/dashboard/batches?created=${encodeURIComponent(String(id))}`);
+                      }),
+                    });
+                    const data = await res.json().catch(() => null);
+                    if (!res.ok) throw new Error(data?.error ?? `Failed to start batch (HTTP ${res.status})`);
+                    const id = Number(data?.batch?.id);
+                    if (Number.isFinite(id)) {
+                      setCreatedBatchId(id);
+                      // Send user back to the batches list (until we have a batch detail page).
+                      router.push(`/dashboard/batches?created=${encodeURIComponent(String(id))}`);
+                    }
+                  } catch (e: any) {
+                    setSubmitError(e?.message ? String(e.message) : "Failed to start batch");
+                  } finally {
+                    setSubmitting(false);
                   }
-                } catch (e: any) {
-                  setSubmitError(e?.message ? String(e.message) : "Failed to start batch");
-                } finally {
-                  setSubmitting(false);
-                }
-              }}
-              disabled={submitting || !candidates || !batchName.trim()}
-            >
-              {submitting ? "Starting…" : "Start batch"}
-            </Button>
-          </div>
+                }}
+                disabled={submitting || !candidates || !batchName.trim()}
+              >
+                {submitting ? "Starting…" : "Start batch"}
+              </Button>
+            </div>
+          </CardContent>
         </Card>
       )}
     </div>

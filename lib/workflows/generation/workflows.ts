@@ -8,12 +8,18 @@ export const baseGenerationInputSchema = z.object({
   moodboard_id: z.number().int().positive().optional().nullable().default(null),
   moodboard_strength: z.enum(['strict', 'inspired']).optional().default('inspired'),
   number_of_variations: z.number().int().min(1).max(10).default(1),
+  model_enabled: z.boolean().optional().default(true),
   model_image: z.string().optional().default(''),
   background_image: z.string().optional().default(''),
   output_format: z.enum(['png', 'jpg', 'webp']).default('png'),
   aspect_ratio: z.enum(['1:1', '4:5', '3:4', '16:9']).default('1:1'),
   custom_instructions: z.array(z.string()),
-});
+  /**
+   * Enriched by the API/job-queue layer (not entered by user directly).
+   * Kept here so the worker-side pipeline path can read it after validation.
+   */
+  style_appendix: z.string().optional().default(''),
+}).passthrough();
 
 function buildCatalogGuidelines() {
   return [
@@ -119,13 +125,14 @@ function makeWorkflow(
 export const generationWorkflows: Record<GenerationWorkflowKey, GenerationWorkflow<BaseGenerationInput>> = {
   'apparel.catalog.v1': {
     ...makeWorkflow('apparel.catalog.v1', 'apparel', 'catalog'),
-    execute: async ({ teamId, productId, variantId, requestOrigin, authCookie, input, numberOfVariations }) =>
+    execute: async ({ teamId, productId, variantId, requestOrigin, authCookie, moodboard, input, numberOfVariations }) =>
       executeApparelCatalogWorkflow({
         teamId,
         productId,
         variantId,
         requestOrigin,
         authCookie,
+        moodboard,
         schemaKey: 'apparel.catalog.v1',
         input,
         numberOfVariations,

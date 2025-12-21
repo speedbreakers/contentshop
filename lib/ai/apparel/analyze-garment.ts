@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { generateText } from 'ai';
 import { buildSameOriginAuthHeaders, fetchAsBytes, resolveUrl } from '../shared/image-fetch';
 import { parseJsonWithSchema } from '../shared/json';
+import { getGarmentAnalysisPrompt } from './prompts';
 
 export const garmentAnalysisSchema = z.object({
   gender: z
@@ -49,11 +50,8 @@ export async function analyzeGarment(args: { requestOrigin: string; frontImageUr
   const headers = buildSameOriginAuthHeaders({ requestOrigin: args.requestOrigin, url, cookie: args.authCookie });
   const img = await fetchAsBytes(url, headers ? ({ headers } as any) : undefined);
 
-  const prompt =
-    'Analyze this apparel item for ecommerce catalog generation. Return ONLY JSON with the following keys: ' +
-    'gender (male|female|null), garment_category (top|bottom|fullbody|null), garment_type (string|null), occasion (string|null), ' +
-    'styling_suggestions {topwear,bottomwear,footwear,notes}, is_bottom_jeans (boolean).';
-
+  const prompt = getGarmentAnalysisPrompt();
+  
   const result: any = await generateText({
     model: 'google/gemini-2.5-flash-lite',
     messages: [

@@ -16,7 +16,8 @@ Product:
 - if the user gives custom instructions for every generation in one text how do you handle that - Done
 - moodboard strictness - Done
 - added references to moodboard - Done
-
+- generation output should generate based on inputs - Done
+- generation form has better UX now - Done
 
 - aspect ratio setting
 - non-garment workflow implementation 
@@ -34,6 +35,10 @@ Product:
 - remove home page
 - batch processing bugs
 - show unfinished jobs on variant page on reload
+- remove image file names in moodboard page
+
+- allow batch generation from product screen
+- remove batch from main nav and replace with tasks (tasks shows all generation tasks)
 
 UI Issues:
 - flow for storefronts is not smooth

@@ -13,7 +13,7 @@ import {
   resolveGenerationWorkflowKey,
 } from '@/lib/workflows/generation';
 import { getMoodboardById, listMoodboardAssetsByKind } from '@/lib/db/moodboards';
-import { signDownloadToken } from '@/lib/uploads/signing';
+import { extractUploadFileId, extractUploadFileIds } from '@/lib/uploads/job-assets';
 
 export const runtime = 'nodejs';
 
@@ -63,7 +63,6 @@ export async function POST(request: Request) {
   }
 
   const requestOrigin = new URL(request.url).origin;
-  const authCookie = request.headers.get('cookie');
   const user = await getUser();
 
   const variantsInput = parsed.data.variants;
@@ -112,8 +111,10 @@ export async function POST(request: Request) {
     positiveSummary: string;
     negativeSummary: string;
     strength: 'strict' | 'inspired';
-    backgroundAssetUrls: string[];
-    modelAssetUrls: string[];
+    backgroundAssetFileIds: number[];
+    modelAssetFileIds: number[];
+    positiveAssetFileIds: number[];
+    negativeAssetFileIds: number[];
     styleAppendix: string;
   } | null = null;
 
@@ -126,34 +127,23 @@ export async function POST(request: Request) {
     const modelAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'model');
     const positiveReferenceAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'reference_positive');
     const negativeReferenceAssets = await listMoodboardAssetsByKind(team.id, mb.id, 'reference_negative');
-    const exp = Date.now() + 1000 * 60 * 60;
-    const backgroundAssetUrls = backgroundAssets.map((a) => {
-      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
-      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
-    });
-    const modelAssetUrls = modelAssets.map((a) => {
-      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
-      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
-    });
-    const positiveAssetUrls = positiveReferenceAssets.map((a) => {
-      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
-      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
-    });
-    const negativeAssetUrls = negativeReferenceAssets.map((a) => {
-      const sig = signDownloadToken({ fileId: a.uploadedFileId, teamId: team.id, exp } as any);
-      return `/api/uploads/${a.uploadedFileId}/file?teamId=${team.id}&exp=${exp}&sig=${sig}`;
-    });
 
     const profile = (mb.styleProfile ?? {}) as Record<string, unknown>;
     const typography = (profile.typography ?? {}) as Record<string, unknown>;
     const rules = Array.isArray((typography as any).rules) ? (typography as any).rules : [];
     const doNot = Array.isArray((profile as any).do_not) ? (profile as any).do_not : [];
+    const positiveSummary = String((profile as any).reference_positive_summary ?? '');
+    const negativeSummary = String((profile as any).reference_negative_summary ?? '');
     const styleAppendix = [
       (typography as any).tone ? `Tone: ${(typography as any).tone}` : '',
       (typography as any).font_family ? `Font family: ${(typography as any).font_family}` : '',
       (typography as any).case ? `Text case: ${(typography as any).case}` : '',
       rules.length ? `Typography rules: ${rules.join('; ')}` : '',
       doNot.length ? `Do not: ${doNot.join('; ')}` : '',
+      positiveSummary.trim() ? `Style references (positive): ${positiveSummary.trim()}` : '',
+      moodboardStrength === 'strict' && negativeSummary.trim()
+        ? `Avoid these styles (negative references): ${negativeSummary.trim()}`
+        : '',
     ]
       .filter(Boolean)
       .join(' | ');
@@ -168,16 +158,38 @@ export async function POST(request: Request) {
         ...positiveReferenceAssets.map((a) => a.uploadedFileId),
         ...negativeReferenceAssets.map((a) => a.uploadedFileId),
       ],
-      assetUrls: positiveAssetUrls,
-      positiveAssetUrls,
-      negativeAssetUrls,
-      positiveSummary: String((profile as any).reference_positive_summary ?? ''),
-      negativeSummary: String((profile as any).reference_negative_summary ?? ''),
+      assetUrls: [],
+      positiveAssetUrls: [],
+      negativeAssetUrls: [],
+      positiveSummary,
+      negativeSummary,
       strength: moodboardStrength,
-      backgroundAssetUrls,
-      modelAssetUrls,
+      backgroundAssetFileIds: backgroundAssets.map((a) => a.uploadedFileId),
+      modelAssetFileIds: modelAssets.map((a) => a.uploadedFileId),
+      positiveAssetFileIds: positiveReferenceAssets.map((a) => a.uploadedFileId),
+      negativeAssetFileIds: negativeReferenceAssets.map((a) => a.uploadedFileId),
       styleAppendix,
     };
+  }
+
+  // Enforce uploads-only image inputs for background jobs (batch-wide optional images).
+  const modelImageRaw = typeof (settingsInput as any)?.model_image === 'string' ? String((settingsInput as any).model_image).trim() : '';
+  const modelImageFileId = modelImageRaw ? extractUploadFileId(modelImageRaw) : null;
+  if (modelImageRaw && !modelImageFileId) {
+    return Response.json(
+      { error: 'settings.input.model_image must be an upload-backed URL (/api/uploads/:id/file) when provided' },
+      { status: 400 }
+    );
+  }
+
+  const backgroundImageRaw =
+    typeof (settingsInput as any)?.background_image === 'string' ? String((settingsInput as any).background_image).trim() : '';
+  const backgroundImageFileId = backgroundImageRaw ? extractUploadFileId(backgroundImageRaw) : null;
+  if (backgroundImageRaw && !backgroundImageFileId) {
+    return Response.json(
+      { error: 'settings.input.background_image must be an upload-backed URL (/api/uploads/:id/file) when provided' },
+      { status: 400 }
+    );
   }
 
   // Credits: upfront for all jobs.
@@ -258,11 +270,15 @@ export async function POST(request: Request) {
 
     const validatedInput = ok.data as any;
     const moodboardStrength = validatedInput.moodboard_strength ?? 'inspired';
-    const backgroundReferenceImageUrls =
-      moodboard && moodboardStrength === 'strict' ? moodboard.backgroundAssetUrls.slice(0, 3) : [];
-    const modelReferenceImageUrls =
-      moodboard && moodboardStrength === 'strict' ? moodboard.modelAssetUrls.slice(0, 3) : [];
-    const extraReferenceImageUrls = [...backgroundReferenceImageUrls, ...modelReferenceImageUrls];
+
+    // Enforce uploads-only product image inputs and persist file IDs only.
+    const productImageFileIds = extractUploadFileIds(validatedInput.product_images ?? []);
+    if (productImageFileIds.length !== (validatedInput.product_images?.length ?? 0)) {
+      return Response.json(
+        { error: `All productImageUrls must be upload-backed URLs (/api/uploads/:id/file) for variant ${variant.id}` },
+        { status: 400 }
+      );
+    }
     const workflowKey = resolveGenerationWorkflowKey({
       productCategory: product.category,
       purpose: validatedInput.purpose,
@@ -310,25 +326,19 @@ export async function POST(request: Request) {
       metadata: {
         schemaKey: workflow.key,
         input: {
-          ...validatedInput,
-          moodboard_snapshot: moodboard
-            ? {
-                id: moodboard.id,
-                name: moodboard.name,
-                style_profile: moodboard.styleProfile,
-                asset_file_ids: moodboard.assetFileIds,
-              }
-            : null,
+          ...(validatedInput as any),
+          product_images: undefined,
+          model_image: undefined,
+          background_image: undefined,
+          product_image_file_ids: productImageFileIds,
+          ...(modelImageFileId ? { model_image_file_id: modelImageFileId } : {}),
+          ...(backgroundImageFileId ? { background_image_file_id: backgroundImageFileId } : {}),
           style_appendix: moodboard?.styleAppendix ?? '',
         },
         numberOfVariations,
         prompts,
         moodboardId: moodboard?.id ?? null,
-        extraReferenceImageUrls,
-        backgroundReferenceImageUrls,
-        modelReferenceImageUrls,
         requestOrigin,
-        authCookie,
         productTitle: product.title,
         productCategory: product.category,
         creditsId: creditCheck.creditsId,
@@ -336,7 +346,7 @@ export async function POST(request: Request) {
         targetSetId: perVariantFolder.id,
         sharedSetId: sharedFolder.id,
         // Store whether model should be included (derived from model_image being non-empty)
-        modelEnabled: Boolean(validatedInput.model_image && validatedInput.model_image.trim() !== ''),
+        modelEnabled: Boolean(validatedInput.model_enabled ?? true),
       } as any,
     });
     if (!job) return Response.json({ error: 'Failed to create job' }, { status: 500 });

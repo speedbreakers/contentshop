@@ -2,6 +2,7 @@ import { generateText } from 'ai';
 import { put } from '@vercel/blob';
 import { buildSameOriginAuthHeaders, coerceResultFileToBytes, fetchAsBytes, resolveUrl } from '../shared/image-fetch';
 import type { GarmentAnalysis } from './analyze-garment';
+import { writeFileSync } from 'fs';
 
 export type GeneratedOutput = {
   blobUrl: string;
@@ -18,6 +19,9 @@ export async function generateApparelCatalogImages(args: {
   garmentImageUrls: string[]; // typically front/back (masked if available)
   positiveMoodboardImageUrls?: string[];
   negativeMoodboardImageUrls?: string[];
+  model_enabled?: boolean;
+  model_description?: string;
+  modelImageUrl?: string | null;
   styleAppendix?: string;
   positiveReferenceSummary?: string;
   negativeReferenceSummary?: string;
@@ -38,6 +42,9 @@ export async function generateApparelCatalogImages(args: {
   );
   if (imgs.length === 0) throw new Error('No garment images available for generation');
 
+  const modelEnabled = Boolean(args.model_enabled ?? false);
+  const modelImg = modelEnabled && args.modelImageUrl ? await fetchAsBytes(args.modelImageUrl) : null;
+
   const analysisBits = [
     args.analysis.garment_type ? `Garment type: ${args.analysis.garment_type}.` : '',
     args.analysis.garment_category ? `Category: ${args.analysis.garment_category}.` : '',
@@ -49,7 +56,11 @@ export async function generateApparelCatalogImages(args: {
   const finalPrompt =
     [
       'Generate an ecommerce catalog image of the garment with high product fidelity.',
-      'Do not change color, logos, branding, or garment structure.',
+      'Do not change color, logos, branding, or garment structure. Make sure the garment is fully visible and not cut off by the edges of the image.',
+      modelEnabled ? 'Include a human model wearing the garment.' : '',
+      modelEnabled && args.modelImageUrl ? `Use Image 1 (Model Image) as the model.` : modelEnabled && String(args.model_description ?? '').trim()
+        ? `Model guidance: ${String(args.model_description ?? '').trim()}`
+        : '',
       `Background: ${args.background_description}`,
       'Lighting: soft even studio lighting, realistic soft shadow.',
       args.styleAppendix?.trim() ? `Brand style: ${args.styleAppendix.trim()}` : '',
@@ -67,19 +78,6 @@ export async function generateApparelCatalogImages(args: {
 
   const outputs: GeneratedOutput[] = [];
 
-  const positiveRefs = Array.isArray(args.positiveMoodboardImageUrls) ? args.positiveMoodboardImageUrls : [];
-  const negativeRefs = Array.isArray(args.negativeMoodboardImageUrls) ? args.negativeMoodboardImageUrls : [];
-
-  const moodboardImgs = await Promise.all(
-    [...positiveRefs, ...negativeRefs]
-      .filter(Boolean)
-      .map((u) => resolveUrl(args.requestOrigin, String(u)))
-      .map(async (u) => {
-        const headers = buildSameOriginAuthHeaders({ requestOrigin: args.requestOrigin, url: u, cookie: args.authCookie });
-        return await fetchAsBytes(u, headers ? ({ headers } as any) : undefined);
-      })
-  );
-
   for (let idx = 0; idx < n; idx++) {
     const result: any = await generateText({
       model: 'google/gemini-2.5-flash-image',
@@ -88,8 +86,9 @@ export async function generateApparelCatalogImages(args: {
           role: 'user',
           content: [
             { type: 'text', text: finalPrompt },
+            ...(modelImg ? [{ type: 'text', text: `Image 1 (Model Image):` }, { type: 'image', image: modelImg.bytes, mimeType: modelImg.mimeType }] : []),
+            { type: 'text', text: `Garment Images:` },
             ...imgs.map((ri) => ({ type: 'image', image: ri.bytes, mimeType: ri.mimeType })),
-            ...moodboardImgs.map((ri) => ({ type: 'image', image: ri.bytes, mimeType: ri.mimeType })),
           ],
         },
       ],

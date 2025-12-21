@@ -21,11 +21,17 @@ export type BaseGenerationInput = {
   moodboard_id?: number | null;
   moodboard_strength?: 'strict' | 'inspired';
   number_of_variations: number;
+  model_enabled: boolean;
   model_image?: string;
   background_image?: string;
   output_format?: 'png' | 'jpg' | 'webp';
   aspect_ratio?: '1:1' | '4:5' | '3:4' | '16:9';
   custom_instructions: string[];
+  /**
+   * Enriched by the API/job layer for prompt building & pipeline execution.
+   * Not directly provided by the user form.
+   */
+  style_appendix?: string;
 };
 
 export type WorkflowProductContext = {
@@ -47,8 +53,16 @@ export type GenerationWorkflow<TInput extends BaseGenerationInput = BaseGenerati
       id: number;
       name: string;
       styleProfile: Record<string, unknown>;
+      /** All moodboard uploaded_file ids across all sections (for auditing). */
       assetFileIds: number[];
-      assetUrls: string[]; // backward-compat: positive refs
+      /** Kind-separated uploaded_file ids (deterministic; used to rehydrate signed URLs at runtime). */
+      backgroundAssetFileIds: number[];
+      modelAssetFileIds: number[];
+      positiveAssetFileIds: number[];
+      negativeAssetFileIds: number[];
+
+      /** Backward-compat alias for positive references. Prefer positiveAssetUrls. */
+      assetUrls: string[];
       positiveAssetUrls: string[];
       negativeAssetUrls: string[];
       positiveSummary: string;

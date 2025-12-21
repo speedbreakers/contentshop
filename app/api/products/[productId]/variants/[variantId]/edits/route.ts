@@ -3,6 +3,7 @@ import { getTeamForUser, getUser } from '@/lib/db/queries';
 import { getProductById } from '@/lib/db/products';
 import { checkCredits, deductCredits } from '@/lib/payments/credits';
 import { createGenerationJob, countActiveGenerationJobsForTeam } from '@/lib/db/generation-jobs';
+import { extractUploadFileId } from '@/lib/uploads/job-assets';
 
 function parseId(param: string) {
   const n = Number(param);
@@ -101,6 +102,23 @@ export async function POST(
   const baseLabel = parsed.data.base_label?.trim() ? String(parsed.data.base_label).trim() : 'image';
   const outputLabel = `edited-${baseLabel}`;
 
+  // Enforce uploads-only image inputs for background jobs.
+  const baseImageFileId = extractUploadFileId(String(parsed.data.base_image_url ?? ''));
+  if (!baseImageFileId) {
+    return Response.json(
+      { error: 'base_image_url must be an upload-backed URL (/api/uploads/:id/file)' },
+      { status: 400 }
+    );
+  }
+  const referenceImageRaw = parsed.data.reference_image_url ? String(parsed.data.reference_image_url).trim() : '';
+  const referenceImageFileId = referenceImageRaw ? extractUploadFileId(referenceImageRaw) : null;
+  if (referenceImageRaw && !referenceImageFileId) {
+    return Response.json(
+      { error: 'reference_image_url must be an upload-backed URL (/api/uploads/:id/file) when provided' },
+      { status: 400 }
+    );
+  }
+
   // Create a job instead of processing synchronously
   const job = await createGenerationJob(team.id, {
     productId: pid,
@@ -110,15 +128,14 @@ export async function POST(
       schemaKey: 'edit.v1',
       targetSetId: parsed.data.target_set_id,
       input: {
-        base_image_url: parsed.data.base_image_url,
-        reference_image_url: parsed.data.reference_image_url,
+        base_image_file_id: baseImageFileId,
+        ...(referenceImageFileId ? { reference_image_file_id: referenceImageFileId } : {}),
         edit_instructions: parsed.data.edit_instructions,
         base_label: baseLabel,
         output_label: outputLabel,
       },
       prompt: parsed.data.edit_instructions,
       requestOrigin,
-      authCookie: request.headers.get('cookie'),
       productTitle: product.title,
       productCategory: product.category,
       numberOfVariations: 1,

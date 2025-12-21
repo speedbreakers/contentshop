@@ -1,6 +1,7 @@
 import { generateText } from 'ai';
 import { put } from '@vercel/blob';
 import { buildSameOriginAuthHeaders, coerceResultFileToBytes, fetchAsBytes, resolveUrl } from '../shared/image-fetch';
+import { getMaskingPrompt } from './prompts';
 
 export type MaskedGarmentOutputs = {
   frontMaskedUrl?: string | null;
@@ -27,9 +28,7 @@ export async function maskGarmentsIfNeeded(args: {
     const resolved = resolveUrl(args.requestOrigin, url);
     const headers = buildSameOriginAuthHeaders({ requestOrigin: args.requestOrigin, url: resolved, cookie: args.authCookie });
     const img = await fetchAsBytes(resolved, headers ? ({ headers } as any) : undefined);
-    const prompt =
-      'Remove the background and return a clean apparel cutout suitable for ecommerce catalog. ' +
-      'Keep garment shape and colors unchanged. Use transparent background if possible.';
+    const prompt = getMaskingPrompt();
 
     const result: any = await generateText({
       model: 'google/gemini-2.5-flash-image',

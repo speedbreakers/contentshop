@@ -7,6 +7,7 @@ import { maskGarmentsIfNeeded } from '@/lib/ai/apparel/mask-garment';
 import { analyzeGarment } from '@/lib/ai/apparel/analyze-garment';
 import { resolveCatalogBackground } from '@/lib/ai/background/resolve-catalog-background';
 import { generateApparelCatalogImages } from '@/lib/ai/apparel/generate-catalog-images';
+import { resolveCatalogModel } from '@/lib/ai/model/resolve-catalog-model';
 
 export async function executeApparelCatalogWorkflow(args: {
   teamId: number;
@@ -18,8 +19,16 @@ export async function executeApparelCatalogWorkflow(args: {
     id: number;
     name: string;
     styleProfile: Record<string, unknown>;
+    /** All moodboard uploaded_file ids across all sections (for auditing). */
     assetFileIds: number[];
-    assetUrls: string[]; // backward-compat: positive refs
+    /** Kind-separated uploaded_file ids (deterministic; used to persist snapshot). */
+    backgroundAssetFileIds: number[];
+    modelAssetFileIds: number[];
+    positiveAssetFileIds: number[];
+    negativeAssetFileIds: number[];
+
+    /** Backward-compat alias for positive refs. Prefer positiveAssetUrls. */
+    assetUrls: string[];
     positiveAssetUrls: string[];
     negativeAssetUrls: string[];
     positiveSummary: string;
@@ -69,11 +78,9 @@ export async function executeApparelCatalogWorkflow(args: {
 
   if (!gen) throw new Error('Failed to create generation');
 
-  // Step 1: classify garment views
-  const productImages: string[] = Array.isArray((args.input as any)?.product_images)
-    ? (args.input as any).product_images
-    : [];
-  if (productImages.length === 0) throw new Error('product_images is required');
+  // Step 1: resolve product images from uploaded_file ids (IDs-only contract)
+  const productImages = args.input.product_images;
+  if (!productImages.length) throw new Error('product_images is required');
 
   const classification = await classifyGarmentViews({
     requestOrigin: args.requestOrigin,
@@ -102,9 +109,28 @@ export async function executeApparelCatalogWorkflow(args: {
     authCookie: args.authCookie,
   });
 
-  // Step 4: resolve background from custom instructions (fallback to studio)
-  const customInstructions = String((args.input as any)?.custom_instructions ?? '');
-  const background = await resolveCatalogBackground({ instructions: customInstructions });
+  const customInstructions = Array.isArray((args.input as any)?.custom_instructions)
+  ? ((args.input as any).custom_instructions as any[]).map((s) => String(s)).join('\n')
+  : String((args.input as any)?.custom_instructions ?? '');
+  
+  // Step 4: resolve background prompt with priority:
+  const moodboardBackgroundSummary = String((args.moodboard?.styleProfile as any)?.backgrounds_analysis_summary ?? '');
+
+  const background = await resolveCatalogBackground({
+    backgroundImageUrl: args.input.background_image,
+    custom_instructions: customInstructions,
+    moodboard_background_summary: moodboardBackgroundSummary,
+  });
+
+  // Step 4b: resolve model guidance (only if model_enabled)
+  const modelEnabled = Boolean((args.input as any)?.model_enabled ?? true);
+  const moodboardModelSummary = String((args.moodboard?.styleProfile as any)?.models_analysis_summary ?? '');
+  const resolvedModel = modelEnabled && !args.input.model_image
+    ? await resolveCatalogModel({
+        custom_instructions: customInstructions,
+        moodboard_model_summary: moodboardModelSummary,
+      })
+    : null;
 
   // Step 5: generate final images
   const garmentImageUrls = [
@@ -123,7 +149,7 @@ export async function executeApparelCatalogWorkflow(args: {
 
   const { outputs, finalPrompt } = await generateApparelCatalogImages({
     requestOrigin: args.requestOrigin,
-    authCookie: args.authCookie,
+    authCookie: args.authCookie ?? null,
     teamId: args.teamId,
     variantId: args.variantId,
     generationId: gen.id,
@@ -137,19 +163,14 @@ export async function executeApparelCatalogWorkflow(args: {
     analysis,
     background_description: background.background_description,
     custom_instructions: customInstructions,
+    model_enabled: modelEnabled,
+    model_description: resolvedModel?.model_description ?? '',
+    modelImageUrl: args.input.model_image,
   });
 
   // Persist pipeline metadata into generation input.
   const enrichedInput = {
     ...(args.input ?? {}),
-    moodboard_snapshot: args.moodboard
-      ? {
-          id: args.moodboard.id,
-          name: args.moodboard.name,
-          style_profile: args.moodboard.styleProfile,
-          asset_file_ids: args.moodboard.assetFileIds,
-        }
-      : null,
     pipeline: {
       classification,
       masking,

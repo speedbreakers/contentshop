@@ -20,6 +20,9 @@ import {
   type GenerationJobProgress,
 } from './generation-jobs';
 import JSZip from 'jszip';
+import { getGenerationWorkflow, type GenerationWorkflowKey } from '@/lib/workflows/generation';
+import { resolveUploadedFileBlobUrls } from '@/lib/uploads/job-assets';
+import { getMoodboardById, listMoodboardAssetsByKind } from './moodboards';
 
 export async function listVariantGenerations(teamId: number, variantId: number) {
   return await db
@@ -848,25 +851,190 @@ export async function processGenerationJob(
       });
     };
 
-    // Call the generation function with progress callback
-    const result = await createVariantGenerationWithGeminiOutputs({
-      teamId,
-      productId,
-      variantId,
-      schemaKey: meta.schemaKey ?? 'generated.v1',
-      input: meta.input ?? {},
-      numberOfVariations,
-      prompts: meta.prompts ?? [], // Required prompts array for per-variation instructions
-      moodboardId: meta.moodboardId ?? null,
-      requestOrigin: meta.requestOrigin ?? '',
-      authCookie: meta.authCookie ?? null,
-      productTitle: meta.productTitle ?? product.title,
-      productCategory: meta.productCategory ?? product.category,
-      extraReferenceImageUrls: meta.extraReferenceImageUrls ?? [],
-      targetSetId: (meta as any)?.targetSetId ? Number((meta as any).targetSetId) : null,
-      alsoAddToSetId: (meta as any)?.sharedSetId ? Number((meta as any).sharedSetId) : null,
-      onProgress,
-    });
+    const schemaKeyRaw = String(meta.schemaKey ?? 'generated.v1');
+    const workflow = getGenerationWorkflow(schemaKeyRaw as GenerationWorkflowKey);
+
+    async function rehydrateJobInputToBlobUrls(raw: any) {
+      const inputAny: any = raw ?? {};
+
+      const productIds: number[] = Array.isArray(inputAny.product_image_file_ids)
+        ? inputAny.product_image_file_ids.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
+        : [];
+      if (productIds.length === 0) throw new Error('product_image_file_ids is required');
+      const productBlobUrls = await resolveUploadedFileBlobUrls(teamId, productIds);
+      if (productBlobUrls.length !== productIds.length) {
+        throw new Error('Failed to resolve one or more product image file IDs');
+      }
+
+      const modelId =
+        typeof inputAny.model_image_file_id === 'number' || typeof inputAny.model_image_file_id === 'string'
+          ? Number(inputAny.model_image_file_id)
+          : null;
+      const backgroundId =
+        typeof inputAny.background_image_file_id === 'number' || typeof inputAny.background_image_file_id === 'string'
+          ? Number(inputAny.background_image_file_id)
+          : null;
+
+      const modelBlobUrl =
+        modelId && Number.isFinite(modelId) && modelId > 0
+          ? (await resolveUploadedFileBlobUrls(teamId, [modelId]))[0] ?? null
+          : null;
+      if (modelId && !modelBlobUrl) throw new Error('Failed to resolve model_image_file_id');
+
+      const backgroundBlobUrl =
+        backgroundId && Number.isFinite(backgroundId) && backgroundId > 0
+          ? (await resolveUploadedFileBlobUrls(teamId, [backgroundId]))[0] ?? null
+          : null;
+      if (backgroundId && !backgroundBlobUrl) throw new Error('Failed to resolve background_image_file_id');
+
+      return {
+        ...inputAny,
+        // Provide the schema-required URL fields using stable blob URLs.
+        product_images: productBlobUrls,
+        model_image: modelBlobUrl ?? '',
+        background_image: backgroundBlobUrl ?? '',
+      };
+    }
+
+    async function resolveMoodboardToRuntime(args: {
+      strength: 'strict' | 'inspired';
+      moodboardId: number | null;
+      styleAppendix: string;
+    }) {
+      const moodboardId = Number(args.moodboardId);
+      if (!Number.isFinite(moodboardId) || moodboardId <= 0) return null;
+
+      const moodboardRow = await getMoodboardById(teamId, moodboardId);
+      if (!moodboardRow) return null;
+
+      const assets = await listMoodboardAssetsByKind(teamId, moodboardId, 'all');
+      const pickIds = (kind: string) =>
+        assets
+          .filter((a) => String((a as any).kind) === kind)
+          .map((a) => Number((a as any).uploadedFileId))
+          .filter((n) => Number.isFinite(n) && n > 0)
+          .slice(0, 3);
+
+      const backgroundIds = pickIds('background');
+      const modelIds = pickIds('model');
+      const positiveIds = pickIds('reference_positive');
+      const negativeIds = pickIds('reference_negative');
+
+      const [backgroundAssetUrls, modelAssetUrls, positiveAssetUrls, negativeAssetUrls] = await Promise.all([
+        resolveUploadedFileBlobUrls(teamId, backgroundIds),
+        resolveUploadedFileBlobUrls(teamId, modelIds),
+        resolveUploadedFileBlobUrls(teamId, positiveIds),
+        resolveUploadedFileBlobUrls(teamId, negativeIds),
+      ]);
+
+      const strength = args.strength;
+      const styleProfile = (moodboardRow.styleProfile ?? {}) as Record<string, unknown>;
+      const positiveSummary = String((styleProfile as any).reference_positive_summary ?? '');
+      const negativeSummary = String((styleProfile as any).reference_negative_summary ?? '');
+
+      const assetFileIds = Array.from(new Set([...backgroundIds, ...modelIds, ...positiveIds, ...negativeIds]));
+
+      return {
+        id: Number(moodboardRow.id),
+        name: String(moodboardRow.name ?? ''),
+        styleProfile,
+        assetFileIds,
+        backgroundAssetFileIds: backgroundIds,
+        modelAssetFileIds: modelIds,
+        positiveAssetFileIds: positiveIds,
+        negativeAssetFileIds: negativeIds,
+        assetUrls: positiveAssetUrls, // backward-compat alias for positive refs
+        positiveAssetUrls,
+        negativeAssetUrls: strength === 'strict' ? negativeAssetUrls : [],
+        positiveSummary,
+        negativeSummary: strength === 'strict' ? negativeSummary : '',
+        strength,
+        styleAppendix: args.styleAppendix,
+        ...(backgroundAssetUrls.length ? { backgroundAssetUrls } : {}),
+        ...(modelAssetUrls.length ? { modelAssetUrls } : {}),
+      } as any;
+    }
+
+    // If workflow has an execute() pipeline, prefer it.
+    let result: any;
+    if (workflow?.execute) {
+      const hydrated = await rehydrateJobInputToBlobUrls(meta.input ?? {});
+      const parsedInput = workflow.inputSchema.safeParse(hydrated);
+      if (!parsedInput.success) {
+        throw new Error(parsedInput.error.issues[0]?.message ?? 'Invalid workflow input');
+      }
+
+      const validatedInput: any = parsedInput.data;
+      const moodboardStrength =
+        validatedInput?.moodboard_strength === 'strict' || validatedInput?.moodboard_strength === 'inspired'
+          ? validatedInput.moodboard_strength
+          : 'inspired';
+
+      const moodboard = await resolveMoodboardToRuntime({
+        strength: moodboardStrength,
+        moodboardId: meta.moodboardId ?? null,
+        styleAppendix: String(validatedInput?.style_appendix ?? ''),
+      });
+
+      result = await workflow.execute({
+        teamId,
+        productId,
+        variantId,
+        requestOrigin: meta.requestOrigin ?? '',
+        authCookie: null,
+        moodboard,
+        input: validatedInput,
+        numberOfVariations,
+      });
+    } else {
+      // Generic prompt-only executor.
+      const hydrated: any = await rehydrateJobInputToBlobUrls(meta.input ?? {});
+      const moodboardStrength =
+        hydrated?.moodboard_strength === 'strict' || hydrated?.moodboard_strength === 'inspired'
+          ? hydrated.moodboard_strength
+          : 'inspired';
+
+      const runtimeMoodboard = await resolveMoodboardToRuntime({
+        strength: moodboardStrength,
+        moodboardId: meta.moodboardId ?? null,
+        styleAppendix: String(hydrated?.style_appendix ?? ''),
+      });
+
+      const backgroundAssetUrls =
+        runtimeMoodboard && moodboardStrength === 'strict'
+          ? (((runtimeMoodboard as any).backgroundAssetUrls as string[]) ?? []).slice(0, 3)
+          : [];
+      const modelAssetUrls =
+        runtimeMoodboard && moodboardStrength === 'strict' && (meta.modelEnabled ?? true)
+          ? (((runtimeMoodboard as any).modelAssetUrls as string[]) ?? []).slice(0, 3)
+          : [];
+      const positiveAssetUrls =
+        runtimeMoodboard && moodboardStrength === 'strict'
+          ? ((runtimeMoodboard as any).positiveAssetUrls ?? []).slice(0, 3)
+          : [];
+
+      // Never attach negative refs; inspired mode is style-only (no attached refs).
+      const extraReferenceImageUrls = [...backgroundAssetUrls, ...modelAssetUrls, ...positiveAssetUrls];
+
+      result = await createVariantGenerationWithGeminiOutputs({
+        teamId,
+        productId,
+        variantId,
+        schemaKey: meta.schemaKey ?? 'generated.v1',
+        input: hydrated,
+        numberOfVariations,
+        prompts: meta.prompts ?? [], // Required prompts array for per-variation instructions
+        moodboardId: meta.moodboardId ?? null,
+        requestOrigin: meta.requestOrigin ?? '',
+        authCookie: null,
+        productTitle: meta.productTitle ?? product.title,
+        productCategory: meta.productCategory ?? product.category,
+        extraReferenceImageUrls,
+        targetSetId: (meta as any)?.targetSetId ? Number((meta as any).targetSetId) : null,
+        alsoAddToSetId: (meta as any)?.sharedSetId ? Number((meta as any).sharedSetId) : null,
+        onProgress,
+      });
+    }
 
     // Mark job as success
     await markGenerationJobSuccess(teamId, jobId, result.generation.id, {
@@ -950,6 +1118,25 @@ export async function processEditJob(
     if (!product) throw new Error('Product not found');
 
     const input = (meta.input ?? {}) as Record<string, unknown>;
+    const baseFileId =
+      typeof (input as any).base_image_file_id === 'number' || typeof (input as any).base_image_file_id === 'string'
+        ? Number((input as any).base_image_file_id)
+        : null;
+    if (!baseFileId || !Number.isFinite(baseFileId) || baseFileId <= 0) {
+      throw new Error('base_image_file_id is required');
+    }
+    const baseBlobUrl = (await resolveUploadedFileBlobUrls(teamId, [baseFileId]))[0] ?? null;
+    if (!baseBlobUrl) throw new Error('Failed to resolve base_image_file_id');
+
+    const refFileId =
+      typeof (input as any).reference_image_file_id === 'number' || typeof (input as any).reference_image_file_id === 'string'
+        ? Number((input as any).reference_image_file_id)
+        : null;
+    const refBlobUrl =
+      refFileId && Number.isFinite(refFileId) && refFileId > 0
+        ? (await resolveUploadedFileBlobUrls(teamId, [refFileId]))[0] ?? null
+        : null;
+    if (refFileId && !refBlobUrl) throw new Error('Failed to resolve reference_image_file_id');
 
     // Call the edit function
     const result = await createVariantEditWithGeminiOutput({
@@ -959,15 +1146,15 @@ export async function processEditJob(
       schemaKey: meta.schemaKey ?? 'edit.v1',
       targetSetId: (meta as any).targetSetId ?? undefined,
       input: {
-        base_image_url: String(input.base_image_url ?? ''),
-        reference_image_url: input.reference_image_url ? String(input.reference_image_url) : undefined,
+        base_image_url: baseBlobUrl,
+        reference_image_url: refBlobUrl ?? undefined,
         edit_instructions: String(input.edit_instructions ?? ''),
         base_label: String(input.base_label ?? 'image'),
         output_label: String(input.output_label ?? 'edited-image'),
       },
       prompt: meta.prompt ?? '',
       requestOrigin: meta.requestOrigin ?? '',
-      authCookie: meta.authCookie ?? null,
+      authCookie: null,
       productTitle: meta.productTitle ?? product.title,
       productCategory: meta.productCategory ?? product.category,
     });
@@ -1024,7 +1211,7 @@ export async function generateBatchZip(
 
   // Upload to Vercel Blob storage
   const pathname = `team-${teamId}/generations/${jobId}/batch.zip`;
-  const blob = new Blob([zipBuffer], { type: 'application/zip' });
+  const blob = new Blob([new Uint8Array(zipBuffer)], { type: 'application/zip' });
   const putRes = await put(pathname, blob, {
     access: 'public',
     contentType: 'application/zip',

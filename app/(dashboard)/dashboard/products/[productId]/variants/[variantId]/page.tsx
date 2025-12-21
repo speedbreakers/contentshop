@@ -12,11 +12,13 @@ import { Store, ExternalLink, PencilIcon, Plus, Download, FolderInput, ChevronLe
 import { GenerationProgress, type GenerationJobData } from '@/components/generation-progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { AssetPickerField } from '@/components/asset-picker';
 import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
@@ -295,6 +297,7 @@ export default function VariantAssetsPage() {
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
 
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [genStep, setGenStep] = useState<1 | 2>(1);
   const [newSetOpen, setNewSetOpen] = useState(false);
   const [renameSetId, setRenameSetId] = useState<number | null>(null);
   const [renameSetName, setRenameSetName] = useState('');
@@ -322,10 +325,28 @@ export default function VariantAssetsPage() {
   );
   const [genCustomInstructions, setGenCustomInstructions] = useState<string[]>(['']);
   const [genModelEnabled, setGenModelEnabled] = useState(true);
+  const [genModelMode, setGenModelMode] = useState<'none' | 'auto' | 'image'>('auto');
   const [genModelImageUrl, setGenModelImageUrl] = useState('');
   const [genBackgroundImageUrl, setGenBackgroundImageUrl] = useState('');
   const [genValidationError, setGenValidationError] = useState<string | null>(null);
   const [genSubmitError, setGenSubmitError] = useState<string | null>(null);
+
+  function resetGenerationFormState() {
+    setGenStep(1);
+    setGenProductImages(['', '', '', '']);
+    setGenNumberOfVariations(1);
+    setGenAspectRatio('1:1');
+    setGenPurpose('catalog');
+    setGenMoodboardId(null);
+    setGenMoodboardStrength('inspired');
+    setGenCustomInstructions(['']);
+    setGenModelMode('auto');
+    setGenModelEnabled(true);
+    setGenModelImageUrl('');
+    setGenBackgroundImageUrl('');
+    setGenValidationError(null);
+    setGenSubmitError(null);
+  }
 
   const { data: moodboardsData } = useSWR<{ items: any[] }>(
     generateOpen ? '/api/moodboards' : null
@@ -695,6 +716,7 @@ export default function VariantAssetsPage() {
       output_format: genOutputFormat,
       aspect_ratio: genAspectRatio,
       custom_instructions: instructions,
+      model_enabled: genModelMode === 'none' ? false : true,
     };
 
     setIsGenerating(true);
@@ -1473,27 +1495,36 @@ export default function VariantAssetsPage() {
         </Card>
       </div>
 
-      {/* Generate dialog */}
-      <Dialog
+      {/* Generate sheet */}
+      <Sheet
         open={generateOpen}
         onOpenChange={(open) => {
           setGenerateOpen(open);
           if (open) {
+            setGenStep(1);
             setGenValidationError(null);
             setGenSubmitError(null);
+            // Sync the 3-option model mode with existing state for a stable UX.
+            const hasModelImage = Boolean(genModelImageUrl.trim());
+            const enabled = Boolean(genModelEnabled);
+            setGenModelMode(enabled ? (hasModelImage ? 'image' : 'auto') : 'none');
           }
         }}
       >
-        <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Generate new outputs
-              <div className="text-xs text-muted-foreground mt-2">
+        <SheetContent
+          side="right"
+          className="w-[96vw] sm:max-w-2xl h-[100dvh] max-h-[100dvh] p-0 gap-0 flex flex-col overflow-hidden"
+        >
+          <SheetHeader className="px-6 border-b flex-shrink-0 bg-background">
+            <SheetTitle>
+              Generate new outputs <span className='text-xs text-muted-foreground'>(Step {genStep} of 2)</span>
+              <div className="text-xs text-muted-foreground mt-1">
                 Category: <span className="font-medium text-foreground capitalize">{productCategory}</span>
               </div>
-            </DialogTitle>
-          </DialogHeader>
+            </SheetTitle>
+          </SheetHeader>
           <form
+            className="flex-1 overflow-hidden flex flex-col"
             onSubmit={async (e) => {
               e.preventDefault();
               if (isGenerating) return;
@@ -1502,221 +1533,308 @@ export default function VariantAssetsPage() {
                 setGenValidationError('At least one product image is required.');
                 return;
               }
+              if (genStep === 1) {
+                setGenValidationError(null);
+                setGenSubmitError(null);
+                setGenStep(2);
+                return;
+              }
+
               setGenValidationError(null);
               setGenSubmitError(null);
               const ok = await generateNewAssets('generated-image');
-              if (ok) setGenerateOpen(false);
+              if (ok) {
+                resetGenerationFormState();
+                setGenerateOpen(false);
+              }
             }}
           >
-            <FieldGroup>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Left: required inputs */}
-                <div className="space-y-8 pr-4 border-r">
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">
-                      Product images <span className="text-red-500">*</span>
-                    </div>
-                    <div className="grid grid-cols-6 gap-2">
-                      {genProductImages.map((url, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <div className="flex-1">
-                            <AssetPickerField
-                              value={url}
-                              onChange={(next) =>
-                                setGenProductImages((prev) =>
-                                  prev.map((v, i) => (i === idx ? next : v))
-                                )
-                              }
-                              kind="product"
-                            />
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <FieldGroup>
+                {genStep === 1 ? (
+                  <div className="space-y-4">
+                    <div className="space-y-4 rounded-lg border p-4">
+                      <div className="text-sm font-medium">
+                        Product images <span className="text-red-500">*</span>
+                      </div>
+                      <div className="grid grid-cols-6 gap-2">
+                        {genProductImages.map((url, idx) => (
+                          <div key={idx} className="flex gap-2">
+                            <div className="flex-1">
+                              <AssetPickerField
+                                value={url}
+                                onChange={(next) =>
+                                  setGenProductImages((prev) =>
+                                    prev.map((v, i) => (i === idx ? next : v))
+                                  )
+                                }
+                                kind="product"
+                              />
+                            </div>
                           </div>
+                        ))}
+                      </div>
+                      {genValidationError ? (
+                        <div className="text-sm text-red-600">{genValidationError}</div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-lg border p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                        <Field>
+                          <FieldLabel>
+                            Model
+                          </FieldLabel>
+                          <FieldDescription className="text-xs text-muted-foreground">Model image to use for the generation.</FieldDescription>
+                          <RadioGroup
+                            value={genModelMode}
+                            onValueChange={(v) => {
+                              const mode = (v as 'none' | 'auto' | 'image') ?? 'auto';
+                              setGenModelMode(mode);
+                              if (mode === 'none') {
+                                setGenModelEnabled(false);
+                                setGenModelImageUrl('');
+                              } else if (mode === 'auto') {
+                                setGenModelEnabled(true);
+                                setGenModelImageUrl('');
+                              } else {
+                                setGenModelEnabled(true);
+                              }
+                            }}
+                            className="mt-2 gap-3"
+                          >
+                            <label className="flex items-start gap-2 text-sm">
+                              <RadioGroupItem value="none" className="mt-0.5" />
+                              <span>
+                                <span className="font-medium">No model</span>
+                              </span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm">
+                              <RadioGroupItem value="auto" className="mt-0.5" />
+                              <span>
+                                <span className="font-medium">Auto model</span>
+                              </span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm">
+                              <RadioGroupItem value="image" className="mt-0.5" />
+                              <span>
+                                <span className="font-medium">Use my model image</span>
+                              </span>
+                            </label>
+                          </RadioGroup>
+                        </Field>
+
+                        <div className="space-y-2">
+                          {genModelMode === 'image' ? (
+                            <>
+                              <AssetPickerField
+                                label="Upload a model image"
+                                value={genModelImageUrl}
+                                onChange={(next) => {
+                                  setGenModelImageUrl(next);
+                                  if (String(next ?? '').trim()) {
+                                    setGenModelEnabled(true);
+                                    setGenModelMode('image');
+                                  }
+                                }}
+                                kind="model"
+                                allowTemplates
+                                templateKind="model"
+                              />
+                              <FieldDescription className="mt-2 text-xs max-w-[200px]">
+                                Tip: Upload a full-body photo for best pose/framing transfer.
+                              </FieldDescription>
+                            </>
+                          ) : (
+                            <div className="text-center rounded-md border border-dashed bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                              {genModelMode === 'none'
+                                ? 'No model will be used. Product images will be generated without a model.'
+                                : 'We’ll choose a model automatically.'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-2">
+                      <AssetPickerField
+                        label="Background image"
+                        value={genBackgroundImageUrl}
+                        onChange={setGenBackgroundImageUrl}
+                        kind="background"
+                        allowTemplates
+                        templateKind="background"
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        If provided, we’ll match this exact background.
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 rounded-lg border p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
+                        <Field>
+                          <FieldLabel htmlFor="gen-moodboard">Moodboard (optional)</FieldLabel>
+                          <Select
+                            value={genMoodboardId ? String(genMoodboardId) : ''}
+                            onValueChange={(v) => setGenMoodboardId(v ? Number(v) : null)}
+                          >
+                            <SelectTrigger id="gen-moodboard" className="w-full">
+                              <SelectValue placeholder="None" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="None">None</SelectItem>
+                              {moodboards.map((m) => (
+                                <SelectItem key={m.id} value={String(m.id)}>
+                                  {m.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FieldDescription>Applies a saved style profile + reference images.</FieldDescription>
+                        </Field>
+
+                        <Field>
+                          <FieldLabel htmlFor="gen-moodboard-strength">Moodboard usage</FieldLabel>
+                          <Select
+                            value={genMoodboardStrength}
+                            onValueChange={(v) => setGenMoodboardStrength(v as 'strict' | 'inspired')}
+                            disabled={!genMoodboardId}
+                          >
+                            <SelectTrigger id="gen-moodboard-strength" className="w-full">
+                              <SelectValue placeholder={genMoodboardId ? 'Select usage' : 'Select a moodboard first'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="inspired">Inspired (use style only)</SelectItem>
+                              <SelectItem value="strict">Strict (use moodboard images)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FieldDescription>
+                            {genMoodboardId
+                              ? 'Custom instructions override moodboard guidance.'
+                              : 'Select a moodboard to enable this setting.'}
+                          </FieldDescription>
+                        </Field>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <Field className="rounded-lg border p-4">
+                      <FieldLabel htmlFor="gen-purpose">Purpose</FieldLabel>
+                      <Select value={genPurpose} onValueChange={(v) => setGenPurpose(v as any)}>
+                        <SelectTrigger id="gen-purpose" className="w-full">
+                          <SelectValue placeholder="Select purpose" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="catalog">Catalog</SelectItem>
+                          <SelectItem value="ads">Ads</SelectItem>
+                          <SelectItem value="infographics">Infographics</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-lg border p-4">
+                      <Field>
+                        <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>
+                        <Input
+                          id="gen-variations"
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={String(genNumberOfVariations)}
+                          onChange={(e) => setGenNumberOfVariations(Number(e.target.value))}
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
+                        <Select value={genAspectRatio} onValueChange={(v) => setGenAspectRatio(v as any)}>
+                          <SelectTrigger id="gen-ratio" className="w-full">
+                            <SelectValue placeholder="Select ratio" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1:1">1:1</SelectItem>
+                            <SelectItem value="4:5">4:5</SelectItem>
+                            <SelectItem value="3:4">3:4</SelectItem>
+                            <SelectItem value="16:9">16:9</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </div>
+
+                    <div className="space-y-3 mt-2 rounded-lg p-4">
+                      <div>
+                        <FieldLabel htmlFor="gen-instructions">Custom instructions</FieldLabel>
+                        <FieldDescription>
+                          Add custom instructions for each variation.
+                        </FieldDescription>
+                      </div>
+                      {Array.from({ length: genNumberOfVariations }, (_, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <FieldLabel
+                            htmlFor={`gen-instructions-${i}`}
+                            className="text-sm font-medium whitespace-nowrap min-w-fit"
+                          >
+                            Variation {i + 1}:
+                          </FieldLabel>
+                          <Input
+                            id={`gen-instructions-${i}`}
+                            value={genCustomInstructions[i] || ''}
+                            onChange={(e) => updateCustomInstruction(i, e.target.value)}
+                            placeholder="e.g., generate a product image with a studio background"
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyInstructionToAll(i)}
+                            className="shrink-0 h-9 w-9 p-0"
+                            title={`Copy to all variations`}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
                         </div>
                       ))}
                     </div>
-                    {genValidationError ? (
-                      <div className="text-sm text-red-600">{genValidationError}</div>
-                    ) : null}
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Field>
-                      <FieldLabel>Model</FieldLabel>
-                      <label className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={genModelEnabled}
-                          onCheckedChange={(v) => {
-                            const enabled = Boolean(v);
-                            setGenModelEnabled(enabled);
-                            if (!enabled) setGenModelImageUrl('');
-                          }}
-                        />
-                        <span>Include model</span>
-                      </label>
-                      <FieldDescription>Optional. Uncheck to generate without a model.</FieldDescription>
-                    </Field>
+                )}
+              </FieldGroup>
 
-                    {genModelEnabled ? (
-                      <AssetPickerField
-                        label="Model image"
-                        value={genModelImageUrl}
-                        onChange={setGenModelImageUrl}
-                        kind="model"
-                        allowTemplates
-                        templateKind="model"
-                      />
-                    ) : null}
-                    <AssetPickerField
-                      label="Background image"
-                      value={genBackgroundImageUrl}
-                      onChange={setGenBackgroundImageUrl}
-                      kind="background"
-                      allowTemplates
-                      templateKind="background"
-                    />
-                  </div>
-
+              {genSubmitError ? (
+                <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {genSubmitError}
                 </div>
+              ) : null}
+            </div>
 
-                {/* Right: optional context + settings */}
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field>
-                      <FieldLabel htmlFor="gen-variations">Number of variations</FieldLabel>
-                      <Input
-                        id="gen-variations"
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={String(genNumberOfVariations)}
-                        onChange={(e) => setGenNumberOfVariations(Number(e.target.value))}
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="gen-ratio">Aspect ratio</FieldLabel>
-                      <Select value={genAspectRatio} onValueChange={(v) => setGenAspectRatio(v as any)}>
-                        <SelectTrigger id="gen-ratio" className="w-full">
-                          <SelectValue placeholder="Select ratio" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1:1">1:1</SelectItem>
-                          <SelectItem value="4:5">4:5</SelectItem>
-                          <SelectItem value="3:4">3:4</SelectItem>
-                          <SelectItem value="16:9">16:9</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-                  <Field>
-                    <FieldLabel htmlFor="gen-purpose">Purpose</FieldLabel>
-                    <Select value={genPurpose} onValueChange={(v) => setGenPurpose(v as any)}>
-                      <SelectTrigger id="gen-purpose" className="w-full">
-                        <SelectValue placeholder="Select purpose" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="catalog">Catalog</SelectItem>
-                        <SelectItem value="ads">Ads</SelectItem>
-                        <SelectItem value="infographics">Infographics</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="gen-moodboard">Moodboard (optional)</FieldLabel>
-                    <Select
-                      value={genMoodboardId ? String(genMoodboardId) : ''}
-                      onValueChange={(v) => setGenMoodboardId(v ? Number(v) : null)}
-                    >
-                      <SelectTrigger id="gen-moodboard" className="w-full">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="None">None</SelectItem>
-                        {moodboards.map((m) => (
-                          <SelectItem key={m.id} value={String(m.id)}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FieldDescription>
-                      Applies a saved style profile + reference images to this generation.
-                    </FieldDescription>
-                  </Field>
-
-                  {genMoodboardId ? (
-                    <Field>
-                      <FieldLabel htmlFor="gen-moodboard-strength">Moodboard usage</FieldLabel>
-                      <Select
-                        value={genMoodboardStrength}
-                        onValueChange={(v) => setGenMoodboardStrength(v as 'strict' | 'inspired')}
-                      >
-                        <SelectTrigger id="gen-moodboard-strength" className="w-full">
-                          <SelectValue placeholder="Select usage" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="inspired">Inspired (use style only)</SelectItem>
-                          <SelectItem value="strict">Strict (use moodboard images)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FieldDescription>
-                        Custom instructions override moodboard guidance.
-                      </FieldDescription>
-                    </Field>
-                  ) : null}
-                </div>
+            <SheetFooter className="px-6 py-4 border-t flex-shrink-0 bg-background flex-row justify-between">
+              <div>
+                <Button variant="outline" type="button" onClick={() => setGenerateOpen(false)} disabled={isGenerating}>
+                  Cancel
+                </Button>
               </div>
-
-              <div className="space-y-3 mt-2">
-                <div>
-                  <FieldLabel htmlFor="gen-instructions">Custom instructions</FieldLabel>
-                  <FieldDescription>
-                    Add custom instructions for each variation.
-                  </FieldDescription>
-                </div>
-                {Array.from({ length: genNumberOfVariations }, (_, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <FieldLabel htmlFor={`gen-instructions-${i}`} className="text-sm font-medium whitespace-nowrap min-w-fit">
-                      Variation {i + 1}:
-                    </FieldLabel>
-                    <Input
-                      id={`gen-instructions-${i}`}
-                      value={genCustomInstructions[i] || ''}
-                      onChange={(e) => updateCustomInstruction(i, e.target.value)}
-                      placeholder="e.g., generate a product image with a studio background"
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyInstructionToAll(i)}
-                      className="shrink-0 h-9 w-9 p-0"
-                      title={`Copy to all variations`}
-                    >
-                      <Copy className="h-4 w-4" />
+              <div className="flex gap-2">
+                {genStep === 1 ? (
+                  <Button type="submit" disabled={isGenerating}>
+                    Next
+                  </Button>
+                ) : (
+                  <>
+                    <Button type="button" variant="outline" onClick={() => setGenStep(1)} disabled={isGenerating}>
+                      Back
                     </Button>
-                  </div>
-                ))}
+                    <Button type="submit" disabled={isGenerating}>
+                      {isGenerating ? 'Generating…' : 'Generate'}
+                    </Button>
+                  </>
+                )}
               </div>
-            </FieldGroup>
-
-            {genSubmitError ? (
-              <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {genSubmitError}
-              </div>
-            ) : null}
-            <DialogFooter className="mt-4">
-              <Button variant="outline" onClick={() => setGenerateOpen(false)} disabled={isGenerating}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isGenerating}
-              >
-                {isGenerating ? 'Generating…' : 'Generate'}
-              </Button>
-            </DialogFooter>
+            </SheetFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       {/* View details dialog */}
       <Dialog
