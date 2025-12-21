@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { BaseGenerationInput, GenerationWorkflow, GenerationWorkflowKey } from './types';
 import { executeApparelCatalogWorkflow } from './apparel/catalog-execute';
+import { executeNonApparelCatalogWorkflow } from './non-apparel/catalog-execute';
 
 export const baseGenerationInputSchema = z.object({
   product_images: z.array(z.string().min(1)).min(1),
@@ -142,7 +143,21 @@ export const generationWorkflows: Record<GenerationWorkflowKey, GenerationWorkfl
   },
   'apparel.ads.v1': makeWorkflow('apparel.ads.v1', 'apparel', 'ads'),
   'apparel.infographics.v1': makeWorkflow('apparel.infographics.v1', 'apparel', 'infographics'),
-  'non_apparel.catalog.v1': makeWorkflow('non_apparel.catalog.v1', 'non_apparel', 'catalog'),
+  'non_apparel.catalog.v1': {
+    ...makeWorkflow('non_apparel.catalog.v1', 'non_apparel', 'catalog'),
+    execute: async ({ teamId, productId, variantId, requestOrigin, authCookie, moodboard, input, numberOfVariations }) =>
+      executeNonApparelCatalogWorkflow({
+        teamId,
+        productId,
+        variantId,
+        requestOrigin,
+        authCookie,
+        moodboard,
+        schemaKey: 'non_apparel.catalog.v1',
+        input,
+        numberOfVariations,
+      }),
+  },
   'non_apparel.ads.v1': makeWorkflow('non_apparel.ads.v1', 'non_apparel', 'ads'),
   'non_apparel.infographics.v1': makeWorkflow('non_apparel.infographics.v1', 'non_apparel', 'infographics'),
 };
@@ -150,5 +165,3 @@ export const generationWorkflows: Record<GenerationWorkflowKey, GenerationWorkfl
 export function getGenerationWorkflow(key: GenerationWorkflowKey) {
   return generationWorkflows[key];
 }
-
-

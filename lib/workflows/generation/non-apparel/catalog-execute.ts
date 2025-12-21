@@ -2,14 +2,11 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
 import { variantGenerations, productVariants, products } from '@/lib/db/schema';
 import { createVariantGenerationWithProvidedOutputs } from '@/lib/db/generations';
-import { classifyGarmentViews } from '@/lib/ai/apparel/classify-garment';
-import { maskGarmentsIfNeeded } from '@/lib/ai/apparel/mask-garment';
-import { analyzeGarment } from '@/lib/ai/apparel/analyze-garment';
-import { resolveCatalogBackground } from '@/lib/ai/background/resolve-catalog-background';
-import { generateApparelCatalogImages } from '@/lib/ai/apparel/generate-catalog-images';
+import { resolveCatalogBackground, STUDIO_DEFAULT_BACKGROUND } from '@/lib/ai/background/resolve-catalog-background';
 import { resolveCatalogModel } from '@/lib/ai/model/resolve-catalog-model';
+import { generateNonApparelShootImages } from '@/lib/ai/non-apparel/generate-shoot-images';
 
-export async function executeApparelCatalogWorkflow(args: {
+export async function executeNonApparelCatalogWorkflow(args: {
   teamId: number;
   productId: number;
   variantId: number;
@@ -27,7 +24,7 @@ export async function executeApparelCatalogWorkflow(args: {
     positiveAssetUrls: string[];
     negativeAssetUrls: string[];
   } | null;
-  schemaKey: string; // apparel.catalog.v1
+  schemaKey: string; // non_apparel.catalog.v1
   input: any; // validated input schema
   numberOfVariations: number;
 }) {
@@ -69,108 +66,65 @@ export async function executeApparelCatalogWorkflow(args: {
 
   if (!gen) throw new Error('Failed to create generation');
 
-  // Step 1: resolve product images from uploaded_file ids (IDs-only contract)
+  // Step 1: Inputs
+  // Note: inputs are already hydrated to blob URLs by the worker
   const productImages = args.input.product_images;
   if (!productImages.length) throw new Error('product_images is required');
 
-  const classification = await classifyGarmentViews({
-    requestOrigin: args.requestOrigin,
-    productImageUrls: productImages,
-    authCookie: args.authCookie,
-  });
-
-  // Step 2: optional masking
-  const masking = await maskGarmentsIfNeeded({
-    requestOrigin: args.requestOrigin,
-    teamId: args.teamId,
-    variantId: args.variantId,
-    generationId: gen.id,
-    needMasking: Boolean(classification.need_masking),
-    frontUrl: classification.frontUrl,
-    backUrl: classification.backUrl,
-    authCookie: args.authCookie,
-  });
-
-  const frontForAnalysis = masking.frontMaskedUrl || classification.frontUrl || productImages[0];
-
-  // Step 3: analyze garment
-  const analysis = await analyzeGarment({
-    requestOrigin: args.requestOrigin,
-    frontImageUrl: String(frontForAnalysis),
-    authCookie: args.authCookie,
-  });
-
-  const customInstructions = Array.isArray((args.input as any)?.custom_instructions)
-  ? ((args.input as any).custom_instructions as any[]).map((s) => String(s)).join('\n')
-  : String((args.input as any)?.custom_instructions ?? '');
+  const customInstructionsRaw = args.input.custom_instructions;
+  const customInstructionsArray: string[] = Array.isArray(customInstructionsRaw)
+    ? customInstructionsRaw.map(String)
+    : [String(customInstructionsRaw || '')].filter(Boolean);
   
-  // Step 4: resolve background prompt with priority:
-  
+  const customInstructionsText = customInstructionsArray.join('\n');
 
+  // Step 2: Resolve Background
   const background = await resolveCatalogBackground({
     backgroundImageUrl: args.input.background_image,
-    custom_instructions: customInstructions,
+    custom_instructions: customInstructionsText,
+    moodboardStrength: args.input.moodboard_strength,
     moodboard: args.moodboard,
   });
 
-  // Step 4b: resolve model guidance (only if model_enabled)
-  const modelEnabled = Boolean((args.input as any)?.model_enabled ?? true);
-  const moodboardModelSummary = String((args.moodboard?.styleProfile as any)?.models_analysis_summary ?? '');
+  // Step 3: Resolve Model (if enabled)
+  const modelEnabled = Boolean(args.input.model_enabled ?? true);
   const resolvedModel = modelEnabled && !args.input.model_image
     ? await resolveCatalogModel({
-        custom_instructions: customInstructions,
+        custom_instructions: customInstructionsText,
         moodboardStrength: args.input.moodboard_strength,
         moodboard: args.moodboard,
       })
     : null;
 
-  // Step 5: generate final images
-  const garmentImageUrls = [
-    masking.frontMaskedUrl || classification.frontUrl,
-    masking.backMaskedUrl || classification.backUrl,
-    classification.frontCloseUrl,
-    classification.backCloseUrl,
-  ].filter(Boolean) as string[];
-
-  const moodboardStrength = args.input.moodboard_strength ?? 'inspired';
-  const positiveMoodboardImageUrls = (args.moodboard?.positiveAssetUrls ?? args.moodboard?.assetUrls ?? []).filter(
-    Boolean
-  );
-  const negativeMoodboardImageUrls =
-    moodboardStrength === 'strict' ? (args.moodboard?.negativeAssetUrls ?? []).filter(Boolean) : [];
-
-  const { outputs, finalPrompt } = await generateApparelCatalogImages({
+  // Step 4: Generate Images (Anchor Loop)
+  const { outputs } = await generateNonApparelShootImages({
     requestOrigin: args.requestOrigin,
-    authCookie: args.authCookie ?? null,
+    authCookie: args.authCookie,
     teamId: args.teamId,
     variantId: args.variantId,
     generationId: gen.id,
     numberOfVariations: args.numberOfVariations,
-    garmentImageUrls,
-    positiveMoodboardImageUrls,
-    negativeMoodboardImageUrls,
-    styleAppendix: String(args.input?.style_appendix ?? ''),
-    positiveReferenceSummary: String(args.moodboard?.styleProfile.reference_positive_summary ?? ''),
-    negativeReferenceSummary: String(args.input.moodboard_strength === 'strict' ? args.moodboard?.styleProfile.reference_negative_summary ?? '' : ''),
-    analysis,
-    background_description: background.background_description,
-    custom_instructions: customInstructions,
+    productImageUrls: productImages,
     model_enabled: modelEnabled,
     model_description: resolvedModel?.model_description ?? '',
     modelImageUrl: args.input.model_image,
-    aspect_ratio: args.input.aspect_ratio,
+    styleAppendix: String(args.input?.style_appendix ?? ''),
+    positiveReferenceSummary: String(args.moodboard?.styleProfile.reference_positive_summary ?? ''),
+    negativeReferenceSummary: String(args.input.moodboard_strength === 'strict' ? args.moodboard?.styleProfile.reference_negative_summary ?? '' : ''),
+    background_description: background.background_description,
+    custom_instructions: customInstructionsArray,
+    aspect_ratio: args.input.aspect_ratio ?? '1:1',
   });
 
   // Persist pipeline metadata into generation input.
+  // Note: We don't have analysis/masking here like apparel, but we save background/model resolution.
   const enrichedInput = {
     ...(args.input ?? {}),
     pipeline: {
-      classification,
-      masking,
-      analysis,
       background,
+      resolvedModel,
       styleAppendix: String(args.input?.style_appendix ?? ''),
-      finalPrompt,
+      // We could store final prompts here if desired, but they are stored per-image in outputs
     },
   };
 
@@ -181,13 +135,12 @@ export async function executeApparelCatalogWorkflow(args: {
     schemaKey: args.schemaKey,
     input: enrichedInput,
     numberOfVariations: args.numberOfVariations,
-    prompts: Array(args.numberOfVariations).fill(finalPrompt), // Same prompt for all variations in pipeline
+    prompts: outputs.map(o => o.prompt), 
     generationId: gen.id,
     moodboardId: args.moodboard?.id ?? null,
-    outputs: outputs.map((o, idx) => ({ blobUrl: o.blobUrl, prompt: finalPrompt })),
+    outputs: outputs.map((o) => ({ blobUrl: o.blobUrl, prompt: o.prompt })),
   });
 
   return saved;
 }
-
 

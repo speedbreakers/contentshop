@@ -60,7 +60,7 @@ export async function generateApparelCatalogImages(args: {
       'Do not change color, logos, branding, or garment structure. Make sure the garment is fully visible and not cut off by the edges of the image.',
       modelEnabled ? 'Include a human model wearing the garment.' : '',
       modelEnabled && args.modelImageUrl ? `Use Image 1 (Model Image) as the model.` : modelEnabled && String(args.model_description ?? '').trim()
-        ? `Model guidance: ${String(args.model_description ?? '').trim()}`
+        ? `Model guidance: ${String(args.model_description ?? '').trim() ?? 'Use an appropriate model for the garment based on Garment Images.'}`
         : '',
       `Background: ${args.background_description}`,
       'Lighting: soft even studio lighting, realistic soft shadow.',

@@ -24,18 +24,21 @@ Product:
 - change all id fields to a big number - Done
 - remove image file names in moodboard page - Done
 - show unfinished jobs on variant page on reload - Done
+- nano banana retry - Done
+- non-garment workflow implementation - Done
 
-- non-garment workflow implementation 
 - infographics workflow implementation
+- ad workflow implementation
+
 - description workflow implementation
 - garment workflow prompts
 - plan upgrade / downgrade flow
 - model and background library
 - onboarding
 - optimizations with kv
-- nano banana retry
 - applying moodboard properly
 - batch processing bugs
+- move to trigger.dev
 
 - allow batch generation from product screen
 - remove batch from main nav and replace with tasks (tasks shows all generation tasks)

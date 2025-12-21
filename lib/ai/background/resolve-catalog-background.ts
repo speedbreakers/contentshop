@@ -2,11 +2,10 @@ import { z } from 'zod';
 import { generateText } from 'ai';
 import { parseJsonWithSchema } from '@/lib/ai/shared/json';
 import { fetchAsBytes } from '@/lib/ai/shared/image-fetch';
-import { getBackgroundDescriptionGenerationPrompt, getBackgroundPrompt } from '../apparel/prompts';
+import { getBackgroundDescriptionGenerationPrompt } from '../apparel/prompts';
 
 export type ResolvedCatalogBackground = {
   background_description: string;
-  source: 'uploaded_background' | 'custom_instructions' | 'moodboard_summary' | 'default';
   confidence: number;
 };
 
@@ -33,7 +32,10 @@ const uploadedBackgroundSchema = z.object({
 export async function resolveCatalogBackground(args: {
   backgroundImageUrl?: string | null;
   custom_instructions?: string | null;
-  moodboard_background_summary?: string | null;
+  moodboardStrength?: 'strict' | 'inspired';
+  moodboard?: {
+    styleProfile?: Record<string, unknown>;
+  } | null;
 }) {
   const bgUrl = String(args.backgroundImageUrl ?? '').trim();
   if (bgUrl) {
@@ -66,9 +68,18 @@ export async function resolveCatalogBackground(args: {
   }
 
   const custom = String(args.custom_instructions ?? '').trim();
-  const moodboard = String(args.moodboard_background_summary ?? '').trim();
+  
+  // Extract moodboard data handling multiple formats
+  const mb = args.moodboard;
+  const styleProfile = (mb?.styleProfile ?? {}) as Record<string, unknown>;
+  
+  const backgroundSummary = styleProfile.backgrounds_analysis_summary ?? ''
+  const positiveRefs = styleProfile.reference_positive_summary ?? ''
+  const negativeRefs = styleProfile.reference_negative_summary ?? ''
+  
+  const strength = args.moodboardStrength ?? 'inspired';
 
-  if (!custom && !moodboard) {
+  if (!custom && !backgroundSummary && !positiveRefs) {
     return {
       background_description: STUDIO_DEFAULT_BACKGROUND,
       source: 'default',
@@ -76,20 +87,32 @@ export async function resolveCatalogBackground(args: {
     } satisfies ResolvedCatalogBackground;
   }
 
-  const prompt =
+  let prompt =
     'You are generating a background prompt for an ecommerce catalog image.\n' +
     'Priority rules:\n' +
-    '- Use custom_instructions ONLY if it contains any relevant background/setting/location/environment details.\n' +
-    '- If custom_instructions has no relevant background detail, use moodboard_background_summary.\n' +
-    '- If neither contains usable background detail, choose default.\n' +
+    '- Use moodboard_background_summary and moodboard_positive_references for background description.\n' +
+    '- Use moodboard_positive_references to understand desired aesthetic, mood, and visual elements to incorporate.\n' +
+    '- If custom_instructions contains any relevant background/setting/location/environment details add that to the response WITHOUT FAIL.\n' +
+    '- If neither contains usable background detail, choose default.\n';
+
+  if (strength === 'strict' && negativeRefs) {
+    prompt += '- Use moodboard_negative_references to understand what styles, elements, and aesthetics to AVOID.\n';
+  }
+
+  prompt +=
     'Output must be STRICT JSON:\n' +
-    '{chosen_source: \"custom_instructions\"|\"moodboard_summary\"|\"default\", background_description: string, confidence:number}\n' +
+    '{background_description: string, confidence:number}\n' +
     'Guidelines for background_description:\n' +
     '- Concrete and visual.\n' +
     '- Include environment/setting, backdrop appearance, lighting, and overall tone.\n' +
     '- Avoid mentioning product/garment or changing it.\n' +
     `\ncustom_instructions:\n${custom || '(empty)'}\n` +
-    `\nmoodboard_background_summary:\n${moodboard || '(empty)'}\n`;
+    `\nmoodboard_background_summary:\n${backgroundSummary || '(empty)'}\n` +
+    `\nmoodboard_positive_references:\n${positiveRefs || '(empty)'}\n`;
+
+  if (strength === 'strict' && negativeRefs) {
+    prompt += `\nmoodboard_negative_references (styles to AVOID):\n${negativeRefs}\n`;
+  }
 
   const result: any = await generateText({
     model: 'google/gemini-2.5-flash-lite',
@@ -101,17 +124,15 @@ export async function resolveCatalogBackground(args: {
   const chosen = parsed.chosen_source;
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0)));
 
-  if (!desc || chosen === 'default') {
+  if (!desc) {
     return {
       background_description: STUDIO_DEFAULT_BACKGROUND,
-      source: 'default',
       confidence,
     } satisfies ResolvedCatalogBackground;
   }
 
   return {
     background_description: desc,
-    source: chosen === 'custom_instructions' ? 'custom_instructions' : 'moodboard_summary',
     confidence,
   } satisfies ResolvedCatalogBackground;
 }
