@@ -118,7 +118,6 @@ export async function resolveCatalogBackground(args: {
 
   const parsed = parseJsonWithSchema(String(result?.text ?? ''), combinedBackgroundSchema);
   const desc = String(parsed.background_description ?? '').trim();
-  const chosen = parsed.chosen_source;
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0)));
 
   if (!desc) {
