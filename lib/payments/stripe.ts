@@ -52,7 +52,7 @@ export async function createCheckoutSession({
     ],
     mode: 'subscription',
     success_url: `${process.env.BASE_URL}/api/stripe/checkout?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.BASE_URL}/pricing`,
+    cancel_url: `${process.env.BASE_URL}/dashboard/subscription`,
     customer: team.stripeCustomerId || undefined,
     client_reference_id: user.id.toString(),
     allow_promotion_codes: true,
@@ -72,7 +72,7 @@ export async function createCheckoutSession({
 
 export async function createCustomerPortalSession(team: Team) {
   if (!team.stripeCustomerId) {
-    redirect('/pricing');
+    redirect('/dashboard/subscription');
   }
 
   // Fetch all Content Shop products for plan switching
@@ -171,7 +171,7 @@ export async function createCustomerPortalSession(team: Team) {
 
   return stripe.billingPortal.sessions.create({
     customer: team.stripeCustomerId,
-    return_url: `${process.env.BASE_URL}/pricing`,
+    return_url: `${process.env.BASE_URL}/dashboard/subscription`,
     configuration: configuration.id,
   });
 }

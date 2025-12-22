@@ -44,9 +44,12 @@ export default function TermsAndConditionsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">5. Payment and Subscription</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-3">5. Payment, Subscription, and Refunds</h2>
             <p>
               Some features of the service may require payment. By selecting a paid plan, you agree to pay the fees associated with that plan. Prices and subscription terms are subject to change with notice.
+            </p>
+            <p className="mt-2">
+              For details on our refund policy, please refer to our <Link href="/refund-policy" className="underline hover:text-primary">Refund Policy</Link> page.
             </p>
           </section>
 

@@ -130,7 +130,7 @@ export function CreditBalance() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip="Subscribe to generate">
-              <Link href="/pricing">
+              <Link href="/dashboard/subscription">
                 <CreditCard className="h-4 w-4" />
                 <span>Subscribe</span>
               </Link>
@@ -178,7 +178,7 @@ export function CreditBalance() {
     return (
       <div className="px-3 py-2">
         <Link
-          href="/pricing"
+          href="/dashboard/subscription"
           className="block text-center py-2 px-3 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
         >
           Subscribe to generate

@@ -202,7 +202,7 @@ export async function POST(request: Request) {
         reason: creditCheck.reason,
         remaining: creditCheck.remaining,
         required: totalImages,
-        upgradeUrl: '/pricing',
+        upgradeUrl: '/dashboard/subscription',
       },
       { status: 402 }
     );

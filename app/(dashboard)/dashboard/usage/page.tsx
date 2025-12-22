@@ -118,7 +118,7 @@ export default function UsagePage() {
           Subscribe to a plan to start tracking your usage.
         </p>
         <Link
-          href="/pricing"
+          href="/dashboard/subscription"
           className="inline-flex items-center gap-2 px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition-colors"
         >
           View Plans
@@ -264,7 +264,7 @@ export default function UsagePage() {
             </div>
           </div>
           <Link
-            href="/pricing"
+            href="/dashboard/subscription"
             className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition-colors"
           >
             Upgrade Plan

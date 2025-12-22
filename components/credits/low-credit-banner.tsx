@@ -81,7 +81,7 @@ export function LowCreditBanner() {
         
         <div className="flex items-center gap-2">
           <Link
-            href="/pricing"
+            href="/dashboard/subscription"
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               isExhausted
                 ? 'bg-red-600 hover:bg-red-700 text-white'

@@ -55,7 +55,7 @@ export async function POST(
         reason: creditCheck.reason,
         remaining: creditCheck.remaining,
         required: numberOfVariations,
-        upgradeUrl: '/pricing',
+        upgradeUrl: '/dashboard/subscription',
       },
       { status: 402 }
     );

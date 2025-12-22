@@ -26,6 +26,12 @@ export default async function HomePage() {
           <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
             <nav className="flex items-center space-x-6 text-sm font-medium">
               <Link
+                href="/pricing"
+                className="text-foreground/60 transition-colors hover:text-foreground/80"
+              >
+                Pricing
+              </Link>
+              <Link
                 href="/sign-in"
                 className="text-foreground/60 transition-colors hover:text-foreground/80"
               >
@@ -148,6 +154,12 @@ export default async function HomePage() {
           <div className="flex gap-4 text-sm text-muted-foreground">
             <Link href="/terms-and-conditions" className="hover:underline">
               Terms
+            </Link>
+            <Link href="/privacy-policy" className="hover:underline">
+              Privacy
+            </Link>
+            <Link href="/refund-policy" className="hover:underline">
+              Refunds
             </Link>
           </div>
         </div>

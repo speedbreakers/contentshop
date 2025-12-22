@@ -119,7 +119,7 @@ export function AppSidebar() {
   const isActivity = pathname.startsWith('/dashboard/activity');
   const isSecurity = pathname.startsWith('/dashboard/security');
   const isStorefronts = pathname.startsWith('/dashboard/storefronts');
-  const isPricing = pathname.startsWith('/pricing');
+  const isSubscription = pathname.startsWith('/dashboard/subscription');
 
   return (
     <Sidebar variant="inset" collapsible="icon">
@@ -187,10 +187,10 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isPricing} tooltip="Plans">
-                  <Link href="/pricing">
+                <SidebarMenuButton asChild isActive={isSubscription} tooltip="Subscription">
+                  <Link href="/dashboard/subscription">
                     <CreditCard />
-                    <span>Plans</span>
+                    <span>Subscription</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

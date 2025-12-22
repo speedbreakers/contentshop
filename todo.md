@@ -26,6 +26,7 @@ Product:
 - show unfinished jobs on variant page on reload - Done
 - nano banana retry - Done
 - non-garment workflow implementation - Done
+- homepage and policies implementation - Done
 
 - infographics workflow implementation
 - ad workflow implementation
@@ -39,6 +40,8 @@ Product:
 - applying moodboard properly
 - batch processing bugs
 - move to trigger.dev
+- analytics posthog
+- error handling sentry
 
 - allow batch generation from product screen
 - remove batch from main nav and replace with tasks (tasks shows all generation tasks)
