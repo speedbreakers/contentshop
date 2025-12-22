@@ -13,7 +13,6 @@ export const STUDIO_DEFAULT_BACKGROUND =
   'Clean studio backdrop (light neutral), soft even lighting, realistic soft shadow, no props.';
 
 const combinedBackgroundSchema = z.object({
-  chosen_source: z.enum(['custom_instructions', 'moodboard_summary', 'default']).default('default'),
   background_description: z.string().default(''),
   confidence: z.number().min(0).max(1).default(0),
 });
@@ -60,7 +59,6 @@ export async function resolveCatalogBackground(args: {
     if (desc) {
       return {
         background_description: desc,
-        source: 'uploaded_background',
         confidence: Math.max(0.75, Math.min(1, Number(parsed.confidence ?? 0.9))),
       } satisfies ResolvedCatalogBackground;
     }
@@ -82,7 +80,6 @@ export async function resolveCatalogBackground(args: {
   if (!custom && !backgroundSummary && !positiveRefs) {
     return {
       background_description: STUDIO_DEFAULT_BACKGROUND,
-      source: 'default',
       confidence: 0,
     } satisfies ResolvedCatalogBackground;
   }

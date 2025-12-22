@@ -9,7 +9,6 @@ export type ResolvedCatalogModel = {
 };
 
 const combinedModelSchema = z.object({
-  chosen_source: z.enum(['custom_instructions', 'moodboard_summary', 'default']).default('default'),
   model_description: z.string().default(''),
   confidence: z.number().min(0).max(1).default(0),
 });
@@ -42,7 +41,7 @@ export async function resolveCatalogModel(args: {
   const negativeSummary = String(styleProfile.reference_negative_summary ?? '').trim();
 
   if (!custom && !modelSummary && !positiveSummary) {
-    return { model_description: DEFAULT_MODEL_DESC, source: 'default', confidence: 0 };
+    return { model_description: DEFAULT_MODEL_DESC, confidence: 0 };
   }
 
   let prompt =
