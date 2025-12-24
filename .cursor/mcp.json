@@ -18,7 +18,13 @@
     "stripe": {
       "command": "npx",
       "args": ["-y", "@stripe/mcp", "--tools=all"],
-      "env": {}
+      "env": {
+        "STRIPE_SECRET_KEY": ""
+      }
+    },
+    "shopify-dev-mcp": {
+      "command": "npx",
+      "args": ["-y", "@shopify/dev-mcp@latest"]
     }
   }
 }
