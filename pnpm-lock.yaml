@@ -150,6 +150,9 @@ importers:
       baseline-browser-mapping:
         specifier: ^2.9.9
         version: 2.9.9
+      prettier:
+        specifier: ^3.7.4
+        version: 3.7.4
       shadcn:
         specifier: ^3.6.0
         version: 3.6.0(@types/node@22.15.18)(typescript@5.8.3)

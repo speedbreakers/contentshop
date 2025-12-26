@@ -42,6 +42,9 @@ Product:
 - move to trigger.dev
 - analytics posthog
 - error handling sentry
+- "generating" images disappear
+- Progress bar only showing 0 of 1 images
+- Full model is not visible
 
 - allow batch generation from product screen
 - remove batch from main nav and replace with tasks (tasks shows all generation tasks)

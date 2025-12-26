@@ -1,19 +1,5 @@
 "use client";
 
-import * as React from "react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import useSWR from "swr";
-import Image from "next/image";
-import { fetchJson } from "@/lib/swr/fetcher";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Pencil, Trash2, Upload as UploadIcon } from "lucide-react";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -23,6 +9,20 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { fetchJson } from "@/lib/swr/fetcher";
+import { Loader2, Pencil, Trash2, Upload as UploadIcon } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import * as React from "react";
+import useSWR from "swr";
 
 type Moodboard = {
     id: number;
@@ -292,35 +292,35 @@ export default function MoodboardDetailPage() {
     }
 
     async function uploadAndAddFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    if (!Number.isFinite(moodboardId)) return;
-    setUploadingAssets(true);
-    try {
-      const uploadedIds: number[] = [];
-      for (const file of Array.from(files)) {
-        const fd = new FormData();
-        fd.set("kind", uploadsKind);
-        fd.set("file", file);
-        const res = await fetch("/api/uploads", { method: "POST", body: fd });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(json?.error ?? `Upload failed (HTTP ${res.status})`);
-        const id = Number(json?.file?.id);
-        if (Number.isFinite(id)) uploadedIds.push(id);
-      }
+        if (!files || files.length === 0) return;
+        if (!Number.isFinite(moodboardId)) return;
+        setUploadingAssets(true);
+        try {
+            const uploadedIds: number[] = [];
+            for (const file of Array.from(files)) {
+                const fd = new FormData();
+                fd.set("kind", uploadsKind);
+                fd.set("file", file);
+                const res = await fetch("/api/uploads", { method: "POST", body: fd });
+                const json = await res.json().catch(() => null);
+                if (!res.ok) throw new Error(json?.error ?? `Upload failed (HTTP ${res.status})`);
+                const id = Number(json?.file?.id);
+                if (Number.isFinite(id)) uploadedIds.push(id);
+            }
 
-      if (uploadedIds.length > 0) {
-        setSelectedUploadIds((prev) => {
-          const next = { ...prev };
-          for (const id of uploadedIds) next[id] = true;
-          return next;
-        });
-      }
-      await mutateUploads();
-    } finally {
-      setUploadingAssets(false);
-      if (uploadInputRef.current) uploadInputRef.current.value = "";
+            if (uploadedIds.length > 0) {
+                setSelectedUploadIds((prev) => {
+                    const next = { ...prev };
+                    for (const id of uploadedIds) next[id] = true;
+                    return next;
+                });
+            }
+            await mutateUploads();
+        } finally {
+            setUploadingAssets(false);
+            if (uploadInputRef.current) uploadInputRef.current.value = "";
+        }
     }
-  }
 
     async function saveMoodboard() {
         if (!moodboard) return;
@@ -384,6 +384,41 @@ export default function MoodboardDetailPage() {
         } finally {
             setDeleting(false);
         }
+    }
+
+    let uploadsContent: React.ReactNode;
+    if (loadingUploads) {
+        uploadsContent = (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading uploads…
+            </div>
+        );
+    } else if (uploads.length === 0) {
+        uploadsContent = <div className="text-sm text-muted-foreground"></div>;
+    } else {
+        uploadsContent = (
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                {uploads.map((u) => (
+                    <label
+                        key={u.id}
+                        className="group rounded-md border overflow-hidden bg-background cursor-pointer"
+                        title={u.originalName ?? `Upload ${u.id}`}
+                    >
+                        <div className="relative aspect-square">
+                            <Image src={u.url} alt={u.originalName ?? `Upload ${u.id}`} fill className="object-cover" />
+                            <div className="absolute top-1 left-1">
+                                <Checkbox
+                                    checked={!!selectedUploadIds[u.id]}
+                                    onCheckedChange={(checked) =>
+                                        setSelectedUploadIds((prev) => ({ ...prev, [u.id]: Boolean(checked) }))
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </label>
+                ))}
+            </div>
+        );
     }
 
     return (
@@ -665,66 +700,36 @@ export default function MoodboardDetailPage() {
                                 <Field>
                                     <FieldLabel>Images</FieldLabel>
                                     <FieldDescription>
-                                        Select which images should be included in this section. (Checked = included)
+                                        Select which images should be included in this section
                                     </FieldDescription>
                                 </Field>
 
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm text-muted-foreground">
-                    Upload new images directly into this section.
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={uploadInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => void uploadAndAddFiles(e.target.files)}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => uploadInputRef.current?.click()}
-                      disabled={uploadingAssets}
-                    >
-                      <UploadIcon className="h-4 w-4 mr-2" />
-                      {uploadingAssets ? "Uploading…" : "Upload"}
-                    </Button>
-                  </div>
-                </div>
-
-                                {loadingUploads ? (
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <Loader2 className="h-4 w-4 animate-spin" /> Loading uploads…
-                                    </div>
-                                ) : uploads.length === 0 ? (
+                                <div className="flex items-center justify-between gap-2">
                                     <div className="text-sm text-muted-foreground">
-                                        No uploads found. Upload files first, then return here.
+                                        Upload new images directly into this section.
                                     </div>
-                                ) : (
-                                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
-                                        {uploads.map((u) => (
-                                            <label
-                                                key={u.id}
-                                                className="group rounded-md border overflow-hidden bg-background cursor-pointer"
-                                                title={u.originalName ?? `Upload ${u.id}`}
-                                            >
-                                                <div className="relative aspect-square">
-                                                    <Image src={u.url} alt={u.originalName ?? `Upload ${u.id}`} fill className="object-cover" />
-                                                    <div className="absolute top-1 left-1">
-                                                        <Checkbox
-                                                            checked={!!selectedUploadIds[u.id]}
-                                                            onCheckedChange={(checked) =>
-                                                                setSelectedUploadIds((prev) => ({ ...prev, [u.id]: Boolean(checked) }))
-                                                            }
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </label>
-                                        ))}
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            ref={uploadInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            className="hidden"
+                                            onChange={(e) => void uploadAndAddFiles(e.target.files)}
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={() => uploadInputRef.current?.click()}
+                                            disabled={uploadingAssets}
+                                        >
+                                            <UploadIcon className="h-4 w-4 mr-2" />
+                                            {uploadingAssets ? "Uploading…" : "Upload"}
+                                        </Button>
                                     </div>
-                                )}
+                                </div>
+
+                                {uploadsContent}
 
                                 <div className="flex items-center justify-end gap-2">
                                     <Button

@@ -1,12 +1,12 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres, { Sql } from 'postgres';
-import * as schema from './schema';
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres, { Sql } from "postgres";
+import * as schema from "./schema";
 
 dotenv.config();
 
 if (!process.env.POSTGRES_URL) {
-  throw new Error('POSTGRES_URL environment variable is not set');
+  throw new Error("POSTGRES_URL environment variable is not set");
 }
 
 // Singleton pattern to prevent connection pool exhaustion in development
@@ -28,7 +28,7 @@ const poolConfig = {
 // In development, use global to preserve connection across hot reloads
 // In production, create a new connection (process only runs once)
 function getClient(): Sql {
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV === "production") {
     return postgres(connectionString, poolConfig);
   }
 

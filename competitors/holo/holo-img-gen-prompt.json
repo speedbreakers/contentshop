@@ -1,0 +1,41 @@
+{
+  "id": "064c07e4-e7a0-42ae-8f8b-6d67c01dea66",
+  "brand_id": "8f1bfad5-0e89-4f27-8ce2-bffaaee7a55e",
+  "name": "New Moodboard",
+  "is_active": true,
+  "analyzed_style": "Based on the visual analysis of these reference images, here are the actionable guidelines for generating similar marketing content:\n\n*   **Visual Style:** High-end interior design photography featuring realistic, cozy living spaces. The aesthetic ranges from classic traditional to modern luxury, emphasizing high-resolution textures and architectural details.\n*   **Lighting:** Warm, ambient illumination combining soft natural daylight from large windows with the golden glow of string lights, candles, and roaring fireplaces. Shadows should be soft and inviting to enhance the \"hygge\" atmosphere.\n*   **Color Palette:** Classic Holiday Red (velvet accents, stockings, ribbons), Forest Green (pine trees, garlands, wreaths), Cream/White (walls, sofas, faux fur), and Metallic Gold (ornaments, light fixtures).\n*   **Subject Styling:** Maximalist holiday decor featuring heavily adorned Christmas trees, lush mantel garlands, piles of wrapped gifts, and plush textiles like chunky knit throws and velvet pillows. Spaces should look \"lived-in\" but perfectly tidied, focusing on the decor rather than human subjects.\n*   **Shapes:** Strong vertical lines (tall windows, floor-to-ceiling trees) balanced by the organic, irregular textures of pine needles and the roundness of wreaths and ornaments.\n*   **Depth:** Richly layered compositions that use textured rugs and furniture in the foreground to lead the eye toward the focal point of the hearth.\n*   **Composition:** Wide-angle interior shots anchored by a central fireplace or architectural feature, often framed symmetrically by trees, archways, or hanging decor.\n*   **Vibe:** Traditional luxury, nostalgic warmth, festive comfort.",
+  "created_at": "2025-12-26T11:54:36.234289+00:00",
+  "updated_at": "2025-12-26T11:55:06.784709+00:00",
+  "images": [
+    {
+      "id": "7a9bce43-6d5c-4a73-b1e3-daf0c5976db9",
+      "moodboard_id": "064c07e4-e7a0-42ae-8f8b-6d67c01dea66",
+      "image_url": "https://api.tryholo.ai/storage/v1/object/public/user-uploads/8f1bfad5-0e89-4f27-8ce2-bffaaee7a55e/moodboards/1766750031040-cg4ojuyys75.jpg",
+      "created_at": "2025-12-26T11:54:37.233132+00:00"
+    },
+    {
+      "id": "f1228921-c771-4b96-ba1d-d0a48ce072c9",
+      "moodboard_id": "064c07e4-e7a0-42ae-8f8b-6d67c01dea66",
+      "image_url": "https://api.tryholo.ai/storage/v1/object/public/user-uploads/8f1bfad5-0e89-4f27-8ce2-bffaaee7a55e/moodboards/1766750049346-omloc6bom1q.jpg",
+      "created_at": "2025-12-26T11:54:38.171072+00:00"
+    },
+    {
+      "id": "7a923042-9670-4db8-95ca-6e208cd0a63e",
+      "moodboard_id": "064c07e4-e7a0-42ae-8f8b-6d67c01dea66",
+      "image_url": "https://api.tryholo.ai/storage/v1/object/public/user-uploads/8f1bfad5-0e89-4f27-8ce2-bffaaee7a55e/moodboards/1766750054626-q03nxjne5gt.jpg",
+      "created_at": "2025-12-26T11:54:39.089916+00:00"
+    },
+    {
+      "id": "86599f74-36dc-4452-b8f2-329fcf87108c",
+      "moodboard_id": "064c07e4-e7a0-42ae-8f8b-6d67c01dea66",
+      "image_url": "https://api.tryholo.ai/storage/v1/object/public/user-uploads/8f1bfad5-0e89-4f27-8ce2-bffaaee7a55e/moodboards/1766750058622-fll8agpr3fk.jpg",
+      "created_at": "2025-12-26T11:54:40.099691+00:00"
+    },
+    {
+      "id": "2d60890b-b987-405f-8117-5d1b3edd9b67",
+      "moodboard_id": "064c07e4-e7a0-42ae-8f8b-6d67c01dea66",
+      "image_url": "https://api.tryholo.ai/storage/v1/object/public/user-uploads/8f1bfad5-0e89-4f27-8ce2-bffaaee7a55e/moodboards/1766750062366-glj1ldaq6hm.jpg",
+      "created_at": "2025-12-26T11:54:41.171563+00:00"
+    }
+  ]
+}
